@@ -1,4 +1,8 @@
 import os
+
+# Force the deterministic AI provider before app modules load — tests must not hit Ollama/OpenRouter.
+os.environ.setdefault("AI_PROVIDER", "deterministic")
+
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -6,7 +10,7 @@ from sqlalchemy.pool import NullPool
 
 from app.api.main import app
 from app.core.database import get_db
-from app.models import Base  # noqa: F401 — imports register Presentation/Slide on Base.metadata
+from app.models import Base  # noqa: F401 — imports register Presentation/Slide/BrandKit on Base.metadata
 
 TEST_DATABASE_URL = os.environ.get(
     "DATABASE_URL",

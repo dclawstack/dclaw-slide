@@ -1,0 +1,275 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import { ArrowLeft, Palette } from "lucide-react";
+
+import { api, ApiError, type BrandKit } from "@/lib/api";
+
+const HEX = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
+
+export default function BrandKitPage() {
+  const [kit, setKit] = useState<BrandKit | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const k = await api.getBrandKit();
+      setKit(k);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Failed to load brand kit");
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (!kit) {
+    return (
+      <main className="min-h-screen bg-slate-50 p-12 text-center text-slate-500">
+        {error ?? "Loading brand kit…"}
+      </main>
+    );
+  }
+
+  function update<K extends keyof BrandKit>(field: K, value: BrandKit[K]) {
+    setKit((prev) => (prev ? { ...prev, [field]: value } : prev));
+    setSuccess(false);
+  }
+
+  async function handleSave() {
+    if (!kit) return;
+    for (const field of ["primary_color", "accent_color", "neutral_color"] as const) {
+      if (!HEX.test(kit[field])) {
+        setError(`${field.replace("_", " ")} must be a valid hex (e.g. #EC4899)`);
+        return;
+      }
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.updateBrandKit({
+        name: kit.name,
+        primary_color: kit.primary_color,
+        accent_color: kit.accent_color,
+        neutral_color: kit.neutral_color,
+        font_heading: kit.font_heading,
+        font_body: kit.font_body,
+        logo_url: kit.logo_url,
+        voice_dos: kit.voice_dos,
+        voice_donts: kit.voice_donts,
+      });
+      setKit(updated);
+      setSuccess(true);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-slate-50">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+          <Link href="/dashboard" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
+            <ArrowLeft className="h-4 w-4" /> Dashboard
+          </Link>
+          <span className="flex items-center gap-2 text-sm text-slate-500">
+            <Palette className="h-4 w-4" />
+            Brand kit
+          </span>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-4xl px-6 py-8 space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">Brand kit</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            Lock the colors, fonts and voice every deck inherits. Applied across all presentations
+            in this workspace.
+          </p>
+        </div>
+
+        {error && (
+          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+        )}
+        {success && (
+          <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+            Saved.
+          </div>
+        )}
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Identity
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Brand name"
+              value={kit.name}
+              onChange={(v) => update("name", v)}
+              placeholder="Acme Inc."
+            />
+            <Field
+              label="Logo URL"
+              value={kit.logo_url}
+              onChange={(v) => update("logo_url", v)}
+              placeholder="https://…/logo.svg"
+            />
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Palette
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <ColorField label="Primary" value={kit.primary_color} onChange={(v) => update("primary_color", v)} />
+            <ColorField label="Accent" value={kit.accent_color} onChange={(v) => update("accent_color", v)} />
+            <ColorField label="Neutral" value={kit.neutral_color} onChange={(v) => update("neutral_color", v)} />
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Typography
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field
+              label="Heading font stack"
+              value={kit.font_heading}
+              onChange={(v) => update("font_heading", v)}
+              placeholder='"Inter", system-ui, sans-serif'
+            />
+            <Field
+              label="Body font stack"
+              value={kit.font_body}
+              onChange={(v) => update("font_body", v)}
+              placeholder='"Inter", system-ui, sans-serif'
+            />
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            Voice
+          </h2>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <TextareaField
+              label="Do"
+              value={kit.voice_dos}
+              onChange={(v) => update("voice_dos", v)}
+              placeholder="Be specific. Show numbers."
+            />
+            <TextareaField
+              label="Don't"
+              value={kit.voice_donts}
+              onChange={(v) => update("voice_donts", v)}
+              placeholder="Avoid jargon. Skip filler words."
+            />
+          </div>
+        </section>
+
+        <div className="flex justify-end">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="rounded-lg bg-rose-500 px-5 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save brand kit"}
+          </button>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <input
+        type="text"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+      />
+    </label>
+  );
+}
+
+function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          className="h-10 w-12 cursor-pointer rounded-md border border-slate-300"
+        />
+        <input
+          type="text"
+          value={value}
+          onChange={(e) => onChange(e.target.value.toUpperCase())}
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+        />
+      </div>
+    </label>
+  );
+}
+
+function TextareaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+        {label}
+      </span>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        rows={4}
+        className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+      />
+    </label>
+  );
+}

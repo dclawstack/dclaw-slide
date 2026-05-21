@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronUp, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare, Trash2 } from "lucide-react";
 
 import {
   api,
   ApiError,
+  type BrandKit,
   type Presentation,
   type Slide,
   type Theme,
@@ -40,16 +41,29 @@ export default function PresentationDetail() {
 
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
+  const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
   const [outline, setOutline] = useState(DEFAULT_OUTLINE);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [notesFor, setNotesFor] = useState<string | null>(null);
+  const [notesPanel, setNotesPanel] = useState<{
+    slideId: string;
+    notes: string;
+    likely_questions: string[];
+    provider: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [deck, ts] = await Promise.all([api.getPresentation(id), api.themes()]);
+      const [deck, ts, kit] = await Promise.all([
+        api.getPresentation(id),
+        api.themes(),
+        api.getBrandKit(),
+      ]);
       setPresentation(deck);
       setThemes(ts);
+      setBrandKit(kit);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load presentation");
     }
@@ -60,6 +74,35 @@ export default function PresentationDetail() {
   }, [load]);
 
   const theme = themes.find((t) => t.id === presentation?.theme_id);
+  const accent = brandKit?.accent_color || theme?.accent || "#EC4899";
+
+  async function generateNotes(slide: Slide) {
+    setNotesFor(slide.id);
+    setError(null);
+    try {
+      const result = await api.generateSpeakerNotes(slide.id, true);
+      setNotesPanel({
+        slideId: slide.id,
+        notes: result.notes,
+        likely_questions: result.likely_questions,
+        provider: result.provider,
+      });
+      setPresentation((prev) =>
+        prev
+          ? {
+              ...prev,
+              slides: prev.slides.map((s) =>
+                s.id === slide.id ? { ...s, speaker_notes: result.notes } : s,
+              ),
+            }
+          : prev,
+      );
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Notes generation failed");
+    } finally {
+      setNotesFor(null);
+    }
+  }
 
   async function handleApplyOutline() {
     if (!id) return;
@@ -250,15 +293,21 @@ export default function PresentationDetail() {
                   <li
                     key={slide.id}
                     className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-                    style={{
-                      borderLeft: theme ? `4px solid ${theme.accent}` : undefined,
-                    }}
+                    style={{ borderLeft: `4px solid ${accent}` }}
                   >
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-xs uppercase tracking-wide text-slate-400">
                         Slide {idx + 1} · {slide.layout}
                       </span>
                       <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => generateNotes(slide)}
+                          disabled={notesFor === slide.id}
+                          className="rounded p-1 text-rose-500 hover:bg-rose-50 disabled:opacity-50"
+                          title="Generate speaker notes (AI)"
+                        >
+                          <MessageSquare className="h-4 w-4" />
+                        </button>
                         <button
                           onClick={() => moveSlide(slide, -1)}
                           disabled={idx === 0}
@@ -301,6 +350,26 @@ export default function PresentationDetail() {
                       className="mt-2 w-full resize-y bg-transparent text-sm text-slate-600 outline-none"
                       rows={Math.max(3, (slide.body.match(/\n/g)?.length ?? 0) + 1)}
                     />
+                    {slide.speaker_notes && (
+                      <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-600">
+                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">
+                          Speaker notes
+                        </div>
+                        {slide.speaker_notes}
+                      </div>
+                    )}
+                    {notesPanel?.slideId === slide.id && (
+                      <div className="mt-3 rounded-md border border-rose-200 bg-rose-50/60 p-3 text-xs text-slate-700">
+                        <div className="mb-1 font-medium uppercase tracking-wide text-rose-700">
+                          Likely audience questions · {notesPanel.provider}
+                        </div>
+                        <ul className="space-y-1">
+                          {notesPanel.likely_questions.map((q, i) => (
+                            <li key={i}>• {q}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ol>

@@ -79,6 +79,34 @@ export interface HealthInfo {
   db: string;
 }
 
+export interface BrandKit {
+  id: string;
+  workspace_id: string;
+  name: string;
+  primary_color: string;
+  accent_color: string;
+  neutral_color: string;
+  font_heading: string;
+  font_body: string;
+  logo_url: string;
+  voice_dos: string;
+  voice_donts: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GenerateDeckResponse {
+  presentation: Presentation;
+  provider: string;
+}
+
+export interface SpeakerNotesResponse {
+  slide: Slide;
+  notes: string;
+  likely_questions: string[];
+  provider: string;
+}
+
 export const api = {
   health: () => request<HealthInfo>("/health/"),
   themes: () => request<Theme[]>("/api/v1/themes"),
@@ -119,4 +147,28 @@ export const api = {
       `/api/v1/presentations/${presentationId}/slides/reorder`,
       { method: "POST", body: JSON.stringify({ slide_ids }) },
     ),
+  getBrandKit: () => request<BrandKit>("/api/v1/brand-kit"),
+  updateBrandKit: (patch: Partial<Omit<BrandKit, "id" | "workspace_id" | "created_at" | "updated_at">>) =>
+    request<BrandKit>("/api/v1/brand-kit", {
+      method: "PUT",
+      body: JSON.stringify(patch),
+    }),
+  generateDeck: (input: {
+    prompt: string;
+    target_slides?: number;
+    deck_type?: "pitch" | "report" | "training";
+    theme_id?: string;
+    title?: string;
+    presentation_id?: string;
+    replace_existing?: boolean;
+  }) =>
+    request<GenerateDeckResponse>("/api/v1/ai/generate-deck", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  generateSpeakerNotes: (slideId: string, save = true) =>
+    request<SpeakerNotesResponse>(`/api/v1/ai/speaker-notes/${slideId}`, {
+      method: "POST",
+      body: JSON.stringify({ save }),
+    }),
 };
