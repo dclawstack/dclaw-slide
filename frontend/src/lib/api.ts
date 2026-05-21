@@ -98,6 +98,7 @@ export interface BrandKit {
 export interface GenerateDeckResponse {
   presentation: Presentation;
   provider: string;
+  references_used: number;
 }
 
 export interface SpeakerNotesResponse {
@@ -134,6 +135,33 @@ export type AnalyticsEventType =
   | "back"
   | "dropoff"
   | "finish";
+
+export interface ShareLink {
+  id: string;
+  presentation_id: string;
+  token: string;
+  allow_edit: boolean;
+  expires_at: string | null;
+  has_password: boolean;
+  view_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BrandReferenceSummary {
+  id: string;
+  title: string;
+  source_kind: string;
+  body_chars: number;
+  created_at: string;
+}
+
+export interface PublicShare {
+  presentation: Presentation;
+  allow_edit: boolean;
+  expires_at: string | null;
+}
+
 
 export const api = {
   health: () => request<HealthInfo>("/health/"),
@@ -189,6 +217,8 @@ export const api = {
     title?: string;
     presentation_id?: string;
     replace_existing?: boolean;
+    use_brand_references?: boolean;
+    workspace_id?: string;
   }) =>
     request<GenerateDeckResponse>("/api/v1/ai/generate-deck", {
       method: "POST",
@@ -222,4 +252,73 @@ export const api = {
     request<AnalyticsSummary>(
       `/api/v1/presentations/${presentationId}/analytics/summary`,
     ),
+
+  getShareLink: (presentationId: string) =>
+    request<ShareLink | null>(`/api/v1/presentations/${presentationId}/share`),
+  createShareLink: (
+    presentationId: string,
+    input: { password?: string; allow_edit?: boolean; expires_in_days?: number | null },
+  ) =>
+    request<ShareLink>(`/api/v1/presentations/${presentationId}/share`, {
+      method: "POST",
+      body: JSON.stringify({
+        password: input.password ?? "",
+        allow_edit: input.allow_edit ?? false,
+        expires_in_days: input.expires_in_days ?? null,
+      }),
+    }),
+  revokeShareLink: (presentationId: string) =>
+    request<void>(`/api/v1/presentations/${presentationId}/share`, { method: "DELETE" }),
+  publicShare: (token: string, password?: string) =>
+    request<PublicShare>(`/api/v1/share/${token}`, {
+      headers: password ? { "X-Share-Password": password } : undefined,
+    }),
+
+  listBrandReferences: () =>
+    request<BrandReferenceSummary[]>("/api/v1/brand-references"),
+  createBrandReference: (input: { title: string; body: string; source_kind?: string }) =>
+    request<BrandReferenceSummary>("/api/v1/brand-references", {
+      method: "POST",
+      body: JSON.stringify({
+        title: input.title,
+        body: input.body,
+        source_kind: input.source_kind ?? "manual",
+      }),
+    }),
+  deleteBrandReference: (id: string) =>
+    request<void>(`/api/v1/brand-references/${id}`, { method: "DELETE" }),
 };
+
+export interface RealtimeEventPresence {
+  event: "presence";
+  users: string[];
+}
+export interface RealtimeEventInvalidate {
+  event: "invalidate";
+  reason: string;
+}
+export type RealtimeEvent = RealtimeEventPresence | RealtimeEventInvalidate;
+
+export function presentationSocket(
+  presentationId: string,
+  userId: string,
+  onEvent: (event: RealtimeEvent) => void,
+): WebSocket | null {
+  if (typeof window === "undefined") return null;
+  const base = API_BASE.replace(/^http/, "ws");
+  const url = `${base}/api/v1/ws/presentations/${presentationId}?user_id=${encodeURIComponent(userId)}`;
+  const ws = new WebSocket(url);
+  ws.onmessage = (e) => {
+    try {
+      onEvent(JSON.parse(e.data) as RealtimeEvent);
+    } catch {
+      /* ignore malformed frames */
+    }
+  };
+  // Keepalive ping every 25s so proxies don't kill the connection.
+  const ping = setInterval(() => {
+    if (ws.readyState === WebSocket.OPEN) ws.send("ping");
+  }, 25_000);
+  ws.addEventListener("close", () => clearInterval(ping));
+  return ws;
+}

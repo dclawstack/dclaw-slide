@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -11,20 +11,34 @@ import {
   Download,
   MessageSquare,
   Play,
+  Share2,
   Trash2,
+  Users,
   Wand2,
+  X,
 } from "lucide-react";
 
 import {
   api,
   ApiError,
+  presentationSocket,
   type AnalyticsSummary,
   type BrandKit,
   type ExportFormat,
   type Presentation,
+  type ShareLink,
   type Slide,
   type Theme,
 } from "@/lib/api";
+
+function newUserId(): string {
+  if (typeof window === "undefined") return "anon";
+  const cached = sessionStorage.getItem("dclaw-user-id");
+  if (cached) return cached;
+  const id = "user-" + Math.random().toString(36).slice(2, 8);
+  sessionStorage.setItem("dclaw-user-id", id);
+  return id;
+}
 
 const DEFAULT_OUTLINE = `# Hook
 - Why now
@@ -49,7 +63,9 @@ const DEFAULT_OUTLINE = `# Hook
 export default function PresentationDetail() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const id = params?.id;
+  const refsUsed = Number(searchParams?.get("refs") ?? 0);
 
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
@@ -65,20 +81,37 @@ export default function PresentationDetail() {
     provider: string;
   } | null>(null);
   const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
+  const [shareLink, setShareLink] = useState<ShareLink | null>(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [presence, setPresence] = useState<string[]>([]);
+
+  const userId = useMemo(newUserId, []);
+
+  const refetchDeck = useCallback(async () => {
+    if (!id) return;
+    try {
+      const deck = await api.getPresentation(id);
+      setPresentation(deck);
+    } catch {
+      /* ignore — UI keeps last good state */
+    }
+  }, [id]);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [deck, ts, kit, summary] = await Promise.all([
+      const [deck, ts, kit, summary, link] = await Promise.all([
         api.getPresentation(id),
         api.themes(),
         api.getBrandKit(),
         api.analyticsSummary(id),
+        api.getShareLink(id),
       ]);
       setPresentation(deck);
       setThemes(ts);
       setBrandKit(kit);
       setAnalytics(summary);
+      setShareLink(link);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load presentation");
     }
@@ -87,6 +120,21 @@ export default function PresentationDetail() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Realtime: presence + invalidate broadcast.
+  useEffect(() => {
+    if (!id) return;
+    const socket = presentationSocket(id, userId, (event) => {
+      if (event.event === "presence") {
+        setPresence(event.users);
+      } else if (event.event === "invalidate") {
+        refetchDeck();
+      }
+    });
+    return () => {
+      socket?.close();
+    };
+  }, [id, userId, refetchDeck]);
 
   const theme = themes.find((t) => t.id === presentation?.theme_id);
   const accent = brandKit?.accent_color || theme?.accent || "#EC4899";
@@ -108,6 +156,29 @@ export default function PresentationDetail() {
   function downloadExport(format: ExportFormat) {
     if (!id) return;
     window.open(api.exportUrl(id, format), "_blank");
+  }
+
+  async function handleCreateShareLink(password: string, expiresInDays: number | null) {
+    if (!id) return;
+    try {
+      const link = await api.createShareLink(id, {
+        password,
+        expires_in_days: expiresInDays,
+      });
+      setShareLink(link);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Share failed");
+    }
+  }
+
+  async function handleRevokeShareLink() {
+    if (!id) return;
+    try {
+      await api.revokeShareLink(id);
+      setShareLink(null);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Revoke failed");
+    }
   }
 
   async function generateNotes(slide: Slide) {
@@ -250,6 +321,20 @@ export default function PresentationDetail() {
             <ArrowLeft className="h-4 w-4" /> Dashboard
           </Link>
           <div className="flex items-center gap-2">
+            {presence.length > 1 && (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700"
+                title={presence.join(", ")}
+              >
+                <Users className="h-3.5 w-3.5" /> {presence.length} online
+              </span>
+            )}
+            <button
+              onClick={() => setShareOpen(true)}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
+            >
+              <Share2 className="h-3.5 w-3.5" /> Share
+            </button>
             <button
               onClick={handleAutoLayout}
               disabled={busy}
@@ -292,6 +377,15 @@ export default function PresentationDetail() {
         </div>
       </header>
 
+      {shareOpen && (
+        <ShareDialog
+          link={shareLink}
+          onCreate={handleCreateShareLink}
+          onRevoke={handleRevokeShareLink}
+          onClose={() => setShareOpen(false)}
+        />
+      )}
+
       <div className="mx-auto max-w-6xl px-6 py-8">
         <input
           value={presentation.title}
@@ -300,6 +394,11 @@ export default function PresentationDetail() {
           className="w-full bg-transparent text-3xl font-bold text-slate-900 outline-none"
         />
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+          {refsUsed > 0 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700">
+              Built with {refsUsed} brand reference{refsUsed === 1 ? "" : "s"}
+            </span>
+          )}
           <span>{presentation.slides.length} slides</span>
           <span>·</span>
           <span>Status: {presentation.status}</span>
@@ -463,6 +562,142 @@ export default function PresentationDetail() {
         </section>
       </div>
     </main>
+  );
+}
+
+function ShareDialog({
+  link,
+  onCreate,
+  onRevoke,
+  onClose,
+}: {
+  link: ShareLink | null;
+  onCreate: (password: string, expiresInDays: number | null) => Promise<void>;
+  onRevoke: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [expiresInDays, setExpiresInDays] = useState<number | "">("");
+  const [busy, setBusy] = useState(false);
+
+  const shareUrl =
+    typeof window !== "undefined" && link
+      ? `${window.location.origin}/s/${link.token}`
+      : "";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-slate-900">Share this deck</h2>
+          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {link ? (
+          <div className="space-y-4">
+            <div className="rounded-lg bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Public link
+              </div>
+              <div className="mt-1 flex gap-2">
+                <input
+                  readOnly
+                  value={shareUrl}
+                  onFocus={(e) => e.target.select()}
+                  className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs"
+                />
+                <button
+                  onClick={() => navigator.clipboard?.writeText(shareUrl)}
+                  className="rounded-md bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+                >
+                  Copy
+                </button>
+              </div>
+              <div className="mt-2 text-xs text-slate-500">
+                {link.has_password ? "🔒 Password required · " : ""}
+                {link.expires_at
+                  ? `Expires ${new Date(link.expires_at).toLocaleDateString()} · `
+                  : "Never expires · "}
+                {link.view_count} views
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={async () => {
+                  setBusy(true);
+                  await onCreate(password, expiresInDays === "" ? null : expiresInDays);
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="rounded-md border border-slate-300 px-3 py-1.5 text-xs font-medium hover:bg-slate-100 disabled:opacity-50"
+              >
+                Rotate link
+              </button>
+              <button
+                onClick={async () => {
+                  setBusy(true);
+                  await onRevoke();
+                  setBusy(false);
+                }}
+                disabled={busy}
+                className="rounded-md border border-rose-200 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+              >
+                Revoke
+              </button>
+            </div>
+          </div>
+        ) : (
+          <form
+            onSubmit={async (e) => {
+              e.preventDefault();
+              setBusy(true);
+              await onCreate(password, expiresInDays === "" ? null : expiresInDays);
+              setBusy(false);
+            }}
+            className="space-y-4"
+          >
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Password (optional)
+              </label>
+              <input
+                type="text"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Leave blank for no password"
+                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+                Expires in (days)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={365}
+                value={expiresInDays}
+                onChange={(e) =>
+                  setExpiresInDays(e.target.value === "" ? "" : Number(e.target.value))
+                }
+                placeholder="Never expires"
+                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={busy}
+              className="w-full rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+            >
+              {busy ? "Creating…" : "Create share link"}
+            </button>
+          </form>
+        )}
+      </div>
+    </div>
   );
 }
 

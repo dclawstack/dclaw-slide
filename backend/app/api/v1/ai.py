@@ -2,14 +2,18 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.models.brand_reference import BrandReference
 from app.models.presentation import Presentation, Slide
 from app.repositories.presentation_repo import PresentationRepository, SlideRepository
 from app.schemas.presentation import PresentationRead, SlideRead
 from app.services.ai import select_provider
 from app.services.layout import pick_layout
+from app.services.rag import format_for_prompt, rank
+from app.services.realtime import manager as realtime
 from app.services.themes import get_theme
 
 router = APIRouter()
@@ -23,6 +27,8 @@ class GenerateDeckRequest(BaseModel):
     title: str | None = Field(default=None, max_length=255)
     presentation_id: UUID | None = None
     replace_existing: bool = True
+    use_brand_references: bool = True
+    workspace_id: str = "default"
 
 
 class GenerateDeckResponse(BaseModel):
@@ -30,6 +36,7 @@ class GenerateDeckResponse(BaseModel):
 
     presentation: PresentationRead
     provider: str
+    references_used: int
 
 
 class SpeakerNotesRequest(BaseModel):
@@ -65,10 +72,25 @@ async def generate_deck(
             Presentation(title=title, theme_id=payload.theme_id, template=payload.theme_id)
         )
 
+    # Brand-RAG: retrieve top references and inline them as prompt context.
+    references_used = 0
+    enriched_prompt = payload.prompt
+    if payload.use_brand_references:
+        refs_result = await db.execute(
+            select(BrandReference).where(BrandReference.workspace_id == payload.workspace_id)
+        )
+        refs = list(refs_result.scalars().all())
+        hits = rank(payload.prompt, refs)[:3]
+        if hits:
+            references_used = len(hits)
+            enriched_prompt = (
+                f"{format_for_prompt(hits)}\n\nUSER REQUEST:\n{payload.prompt}"
+            )
+
     provider = await select_provider()
     try:
         generated = await provider.generate_deck(
-            payload.prompt, payload.target_slides, payload.deck_type
+            enriched_prompt, payload.target_slides, payload.deck_type
         )
     except Exception as exc:  # network failure / bad JSON — never bubble up raw
         raise HTTPException(
@@ -99,9 +121,11 @@ async def generate_deck(
         )
     await db.commit()
     await db.refresh(presentation, ["slides"])
+    await realtime.notify_invalidate(presentation.id, "ai_generated")
     return GenerateDeckResponse(
         presentation=PresentationRead.model_validate(presentation),
         provider=provider.name,
+        references_used=references_used,
     )
 
 
@@ -136,6 +160,7 @@ async def generate_speaker_notes(
         slide.speaker_notes = result.notes
         await db.commit()
         await db.refresh(slide)
+        await realtime.notify_invalidate(slide.presentation_id, "speaker_notes_updated")
 
     return SpeakerNotesResponse(
         slide=SlideRead.model_validate(slide),

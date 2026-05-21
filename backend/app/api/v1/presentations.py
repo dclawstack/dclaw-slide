@@ -21,6 +21,7 @@ from app.schemas.presentation import (
 from app.services.export import EXPORT_FORMATS, ExportInput, ExportSlide
 from app.services.layout import pick_layout
 from app.services.outline import parse_outline
+from app.services.realtime import manager as realtime
 from app.services.themes import get_theme
 
 router = APIRouter()
@@ -97,6 +98,7 @@ async def update_presentation(
         setattr(presentation, field, value)
     await db.commit()
     await db.refresh(presentation)
+    await realtime.notify_invalidate(presentation_id, "presentation_updated")
     return PresentationRead.model_validate(presentation)
 
 
@@ -162,6 +164,7 @@ async def update_slide(
         setattr(slide, field, value)
     await db.commit()
     await db.refresh(slide)
+    await realtime.notify_invalidate(presentation_id, "slide_updated")
     return SlideRead.model_validate(slide)
 
 
@@ -176,6 +179,7 @@ async def delete_slide(
     if slide is None or slide.presentation_id != presentation_id:
         raise HTTPException(status_code=404, detail="slide not found")
     await slide_repo.delete(slide)
+    await realtime.notify_invalidate(presentation_id, "slide_deleted")
 
 
 @router.post(
@@ -198,6 +202,7 @@ async def reorder_slides(
         existing_by_id[slide_id].position = new_position
     await db.commit()
     refreshed = await slide_repo.list_for_presentation(presentation_id)
+    await realtime.notify_invalidate(presentation_id, "slides_reordered")
     return [SlideRead.model_validate(s) for s in refreshed]
 
 
@@ -252,6 +257,7 @@ async def auto_layout(
     if changed:
         await db.commit()
         await db.refresh(presentation, ["slides"])
+        await realtime.notify_invalidate(presentation_id, "auto_layout_applied")
     return PresentationRead.model_validate(presentation)
 
 
@@ -289,4 +295,5 @@ async def apply_outline(
         )
     await db.commit()
     await db.refresh(presentation, ["slides"])
+    await realtime.notify_invalidate(presentation_id, "outline_applied")
     return PresentationRead.model_validate(presentation)

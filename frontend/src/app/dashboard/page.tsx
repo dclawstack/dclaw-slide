@@ -64,8 +64,13 @@ export default function Dashboard() {
         target_slides: aiSlides,
         deck_type: aiDeckType,
         theme_id: themeId,
+        use_brand_references: true,
       });
-      window.location.href = `/p/${result.presentation.id}`;
+      const refsHint =
+        result.references_used > 0
+          ? `?from=ai&refs=${result.references_used}`
+          : "?from=ai";
+      window.location.href = `/p/${result.presentation.id}${refsHint}`;
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Generation failed");
       setAiGenerating(false);
