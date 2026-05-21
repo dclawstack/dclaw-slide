@@ -107,6 +107,34 @@ export interface SpeakerNotesResponse {
   provider: string;
 }
 
+export type ExportFormat = "html" | "pptx" | "pdf";
+
+export interface SlideStat {
+  slide_id: string;
+  position: number;
+  title: string;
+  views: number;
+  total_dwell_ms: number;
+  average_dwell_ms: number;
+  dropoffs: number;
+}
+
+export interface AnalyticsSummary {
+  presentation_id: string;
+  total_sessions: number;
+  total_events: number;
+  completion_rate: number;
+  slides: SlideStat[];
+}
+
+export type AnalyticsEventType =
+  | "slide_view"
+  | "dwell"
+  | "advance"
+  | "back"
+  | "dropoff"
+  | "finish";
+
 export const api = {
   health: () => request<HealthInfo>("/health/"),
   themes: () => request<Theme[]>("/api/v1/themes"),
@@ -171,4 +199,27 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ save }),
     }),
+  autoLayout: (presentationId: string) =>
+    request<Presentation>(`/api/v1/presentations/${presentationId}/auto-layout`, {
+      method: "POST",
+    }),
+  exportUrl: (presentationId: string, format: ExportFormat) =>
+    `${API_BASE}/api/v1/presentations/${presentationId}/export?format=${format}`,
+  recordAnalytics: (
+    presentationId: string,
+    input: {
+      session_id: string;
+      event_type: AnalyticsEventType;
+      slide_id?: string;
+      dwell_ms?: number;
+    },
+  ) =>
+    request<unknown>(`/api/v1/presentations/${presentationId}/analytics/event`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  analyticsSummary: (presentationId: string) =>
+    request<AnalyticsSummary>(
+      `/api/v1/presentations/${presentationId}/analytics/summary`,
+    ),
 };

@@ -3,12 +3,24 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronUp, MessageSquare, Trash2 } from "lucide-react";
+import {
+  ArrowLeft,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
+  Download,
+  MessageSquare,
+  Play,
+  Trash2,
+  Wand2,
+} from "lucide-react";
 
 import {
   api,
   ApiError,
+  type AnalyticsSummary,
   type BrandKit,
+  type ExportFormat,
   type Presentation,
   type Slide,
   type Theme,
@@ -52,18 +64,21 @@ export default function PresentationDetail() {
     likely_questions: string[];
     provider: string;
   } | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsSummary | null>(null);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const [deck, ts, kit] = await Promise.all([
+      const [deck, ts, kit, summary] = await Promise.all([
         api.getPresentation(id),
         api.themes(),
         api.getBrandKit(),
+        api.analyticsSummary(id),
       ]);
       setPresentation(deck);
       setThemes(ts);
       setBrandKit(kit);
+      setAnalytics(summary);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Failed to load presentation");
     }
@@ -75,6 +90,25 @@ export default function PresentationDetail() {
 
   const theme = themes.find((t) => t.id === presentation?.theme_id);
   const accent = brandKit?.accent_color || theme?.accent || "#EC4899";
+
+  async function handleAutoLayout() {
+    if (!id) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await api.autoLayout(id);
+      setPresentation(updated);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Auto-layout failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function downloadExport(format: ExportFormat) {
+    if (!id) return;
+    window.open(api.exportUrl(id, format), "_blank");
+  }
 
   async function generateNotes(slide: Slide) {
     setNotesFor(slide.id);
@@ -215,12 +249,46 @@ export default function PresentationDetail() {
           <Link href="/dashboard" className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900">
             <ArrowLeft className="h-4 w-4" /> Dashboard
           </Link>
-          <button
-            onClick={deleteDeck}
-            className="rounded-md border border-rose-200 px-3 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
-          >
-            Delete deck
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAutoLayout}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+              title="Re-pick the best layout for every slide"
+            >
+              <Wand2 className="h-3.5 w-3.5" /> Auto-layout
+            </button>
+            <Link
+              href={`/p/${id}/present`}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-900 bg-slate-900 px-3 py-1 text-xs font-medium text-white hover:bg-slate-800"
+            >
+              <Play className="h-3.5 w-3.5" /> Present
+            </Link>
+            <div className="relative inline-block">
+              <details className="group">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100">
+                  <Download className="h-3.5 w-3.5" /> Export
+                </summary>
+                <div className="absolute right-0 z-10 mt-1 w-32 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+                  {(["pdf", "pptx", "html"] as const).map((fmt) => (
+                    <button
+                      key={fmt}
+                      onClick={() => downloadExport(fmt)}
+                      className="block w-full px-3 py-2 text-left text-xs text-slate-700 hover:bg-slate-50"
+                    >
+                      .{fmt}
+                    </button>
+                  ))}
+                </div>
+              </details>
+            </div>
+            <button
+              onClick={deleteDeck}
+              className="rounded-md border border-rose-200 px-3 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50"
+            >
+              Delete
+            </button>
+          </div>
         </div>
       </header>
 
@@ -254,6 +322,23 @@ export default function PresentationDetail() {
 
         {error && (
           <div className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
+        )}
+
+        {analytics && analytics.total_sessions > 0 && (
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-slate-500" />
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Audience analytics
+              </h2>
+              <span className="ml-auto text-xs text-slate-400">
+                {analytics.total_sessions} session
+                {analytics.total_sessions === 1 ? "" : "s"} ·{" "}
+                {(analytics.completion_rate * 100).toFixed(0)}% completed
+              </span>
+            </div>
+            <AnalyticsHeatmap summary={analytics} accent={accent} />
+          </section>
         )}
 
         <section className="mt-6 grid gap-8 lg:grid-cols-[2fr_3fr]">
@@ -378,5 +463,46 @@ export default function PresentationDetail() {
         </section>
       </div>
     </main>
+  );
+}
+
+function AnalyticsHeatmap({
+  summary,
+  accent,
+}: {
+  summary: AnalyticsSummary;
+  accent: string;
+}) {
+  const max = Math.max(1, ...summary.slides.map((s) => s.average_dwell_ms));
+  return (
+    <ul className="space-y-2">
+      {summary.slides.map((slide) => {
+        const ratio = max > 0 ? slide.average_dwell_ms / max : 0;
+        return (
+          <li key={slide.slide_id} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3 text-xs">
+            <span className="font-mono text-slate-400">{slide.position + 1}.</span>
+            <div className="relative h-6 overflow-hidden rounded-md bg-slate-100">
+              <div
+                className="absolute inset-y-0 left-0"
+                style={{
+                  width: `${Math.max(2, ratio * 100)}%`,
+                  backgroundColor: accent,
+                  opacity: 0.7,
+                }}
+              />
+              <span className="absolute inset-0 flex items-center px-3 text-slate-700">
+                {slide.title}
+              </span>
+            </div>
+            <span className="font-mono text-slate-500">
+              {Math.round(slide.average_dwell_ms / 1000)}s · {slide.views} views
+              {slide.dropoffs > 0 && (
+                <span className="ml-2 text-rose-500">{slide.dropoffs} drop</span>
+              )}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }

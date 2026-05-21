@@ -1,6 +1,7 @@
+import re
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -17,6 +18,8 @@ from app.schemas.presentation import (
     SlideRead,
     SlideUpdate,
 )
+from app.services.export import EXPORT_FORMATS, ExportInput, ExportSlide
+from app.services.layout import pick_layout
 from app.services.outline import parse_outline
 from app.services.themes import get_theme
 
@@ -198,6 +201,60 @@ async def reorder_slides(
     return [SlideRead.model_validate(s) for s in refreshed]
 
 
+@router.get("/{presentation_id}/export")
+async def export_presentation(
+    presentation_id: UUID,
+    format: str = Query(default="pdf", pattern=r"^(html|pptx|pdf)$"),
+    db: AsyncSession = Depends(get_db),
+) -> Response:
+    presentation = await _load_presentation(presentation_id, db)
+    spec = EXPORT_FORMATS[format]
+    theme = get_theme(presentation.theme_id)
+    payload = ExportInput(
+        title=presentation.title,
+        theme_accent=theme.accent if theme else "#EC4899",
+        slides=[
+            ExportSlide(
+                position=s.position,
+                title=s.title,
+                body=s.body,
+                layout=s.layout,
+                speaker_notes=s.speaker_notes,
+            )
+            for s in presentation.slides
+        ],
+    )
+    data: bytes = spec["render"](payload)
+    safe_title = re.sub(r"[^A-Za-z0-9._-]+", "_", presentation.title).strip("_") or "deck"
+    filename = f"{safe_title}.{spec['extension']}"
+    return Response(
+        content=data,
+        media_type=spec["content_type"],
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post(
+    "/{presentation_id}/auto-layout",
+    response_model=PresentationRead,
+)
+async def auto_layout(
+    presentation_id: UUID, db: AsyncSession = Depends(get_db)
+) -> PresentationRead:
+    """Run the heuristic layout picker over every slide and persist any changes."""
+    presentation = await _load_presentation(presentation_id, db)
+    changed = False
+    for slide in presentation.slides:
+        new_layout = pick_layout(slide.title, slide.body, slide.layout)
+        if new_layout != slide.layout:
+            slide.layout = new_layout
+            changed = True
+    if changed:
+        await db.commit()
+        await db.refresh(presentation, ["slides"])
+    return PresentationRead.model_validate(presentation)
+
+
 @router.post(
     "/{presentation_id}/outline",
     response_model=PresentationRead,
@@ -227,7 +284,7 @@ async def apply_outline(
                 position=start_position + offset,
                 title=draft.title,
                 body=draft.body,
-                layout=draft.layout,
+                layout=pick_layout(draft.title, draft.body, draft.layout),
             )
         )
     await db.commit()

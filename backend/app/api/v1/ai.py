@@ -9,6 +9,7 @@ from app.models.presentation import Presentation, Slide
 from app.repositories.presentation_repo import PresentationRepository, SlideRepository
 from app.schemas.presentation import PresentationRead, SlideRead
 from app.services.ai import select_provider
+from app.services.layout import pick_layout
 from app.services.themes import get_theme
 
 router = APIRouter()
@@ -85,13 +86,15 @@ async def generate_deck(
         start = await slide_repo.next_position(presentation.id)
 
     for offset, gen in enumerate(generated):
+        # Critic step: heuristic layout picker overrides whatever the LLM chose.
+        layout = pick_layout(gen.title, gen.body, gen.layout)
         db.add(
             Slide(
                 presentation_id=presentation.id,
                 position=start + offset,
                 title=gen.title,
                 body=gen.body,
-                layout=gen.layout,
+                layout=layout,
             )
         )
     await db.commit()
