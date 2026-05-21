@@ -21,7 +21,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8109
+              containerPort: 8021
               protocol: TCP
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
