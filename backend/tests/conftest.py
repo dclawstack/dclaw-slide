@@ -6,7 +6,7 @@ from sqlalchemy.pool import NullPool
 
 from app.api.main import app
 from app.core.database import get_db
-from app.models.base import Base
+from app.models import Base  # noqa: F401 — imports register Presentation/Slide on Base.metadata
 
 TEST_DATABASE_URL = os.environ.get(
     "DATABASE_URL",

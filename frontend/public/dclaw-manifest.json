@@ -1,0 +1,21 @@
+{
+  "app_id": "slide",
+  "name": "DClaw Slide",
+  "category": "Presentations",
+  "tagline": "AI-generated decks",
+  "color": "#EC4899",
+  "version": "1.0.0",
+  "icon_emoji": "🎯",
+  "routes": {
+    "home": "/",
+    "dashboard": "/dashboard"
+  },
+  "backend": {
+    "base_path": "/api/v1",
+    "health_path": "/health/",
+    "port": 8021
+  },
+  "frontend": {
+    "port": 3021
+  }
+}
