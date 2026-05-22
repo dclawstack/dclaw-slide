@@ -122,12 +122,19 @@ class DeterministicProvider(LLMProvider):
     ) -> list[GeneratedSlide]:
         template = _section_template(deck_type)
         target = max(1, min(target_slides, 16))
-        sections = template[:target]
-        while len(sections) < target:
-            sections.append(
-                (f"Slide {len(sections) + 1}", "title-bullets", "- TODO\n- TODO")
-            )
         prompt_hint = prompt.strip()[:160] or "Untitled deck"
+        # If the user wants more slides than the template has, fan out with
+        # prompt-derived "deep dive" slides instead of leaking "TODO" strings.
+        sections: list[tuple[str, str, str]] = list(template[:target])
+        extras = max(0, target - len(template))
+        for n in range(1, extras + 1):
+            sections.append(
+                (
+                    f"Deep dive {n}",
+                    "title-bullets",
+                    f"- Additional angle on: {prompt_hint}\n- Supporting evidence\n- Open question",
+                )
+            )
         out: list[GeneratedSlide] = []
         for idx, (title, layout, body) in enumerate(sections):
             if idx == 0:

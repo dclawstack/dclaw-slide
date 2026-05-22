@@ -63,6 +63,36 @@ async def test_unknown_event_type_rejected(client):
 
 
 @pytest.mark.asyncio
+async def test_event_accepts_text_plain_body_from_beacon(client):
+    """navigator.sendBeacon cross-origin can only send text/plain. The endpoint
+    must accept the JSON payload regardless of Content-Type."""
+    pid, slides = await _deck_with_slides(client)
+    response = await client.post(
+        f"/api/v1/presentations/{pid}/analytics/event",
+        content=(
+            '{"session_id":"beacon-1","event_type":"dropoff",'
+            f'"slide_id":"{slides[0]["id"]}"' + "}"
+        ),
+        headers={"Content-Type": "text/plain"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["event_type"] == "dropoff"
+    assert body["session_id"] == "beacon-1"
+
+
+@pytest.mark.asyncio
+async def test_event_rejects_empty_body(client):
+    pid, _ = await _deck_with_slides(client)
+    response = await client.post(
+        f"/api/v1/presentations/{pid}/analytics/event",
+        content="",
+        headers={"Content-Type": "text/plain"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_dropoff_counted(client):
     pid, slides = await _deck_with_slides(client)
     await client.post(

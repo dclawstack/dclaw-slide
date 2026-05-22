@@ -105,6 +105,10 @@ export default function PresenterView() {
   }, [presentation, index]);
 
   // On true tab close, flag a dropoff if not finished.
+  // Note: sendBeacon counts as a "simple request" only with text/plain or
+  // form-encoded bodies, which means cross-origin JSON Blobs are silently
+  // dropped by browsers (no preflight is possible). We send the JSON as a
+  // text/plain Blob; the backend parses raw body on this route.
   useEffect(() => {
     function onUnload() {
       if (!presentation) return;
@@ -119,7 +123,7 @@ export default function PresenterView() {
                 slide_id: presentation.slides[index]?.id,
               }),
             ],
-            { type: "application/json" },
+            { type: "text/plain" },
           ),
         );
       }

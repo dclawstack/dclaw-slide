@@ -18,6 +18,22 @@ async def test_deterministic_generate_deck_pitch_template():
 
 
 @pytest.mark.asyncio
+async def test_deterministic_does_not_leak_todo_placeholders():
+    """When target_slides exceeds the template length, the extra slides should
+    be prompt-derived deep dives — never a literal 'TODO' placeholder."""
+    provider = DeterministicProvider()
+    slides = await provider.generate_deck(
+        prompt="Q3 board update on margin expansion",
+        target_slides=12,
+        deck_type="report",  # report template has 7 sections, so 5 extras
+    )
+    assert len(slides) == 12
+    for s in slides:
+        assert "TODO" not in s.body, f"slide {s.title!r} leaked TODO: {s.body!r}"
+    assert any(s.title.startswith("Deep dive") for s in slides[7:])
+
+
+@pytest.mark.asyncio
 async def test_deterministic_generate_speaker_notes_returns_questions():
     provider = DeterministicProvider()
     notes = await provider.generate_speaker_notes(

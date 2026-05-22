@@ -1,6 +1,8 @@
+import json
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +21,23 @@ from app.schemas.analytics import (
 router = APIRouter()
 
 
+async def _parse_event_payload(request: Request) -> AnalyticsEventCreate:
+    """Accept JSON either via Content-Type: application/json (normal fetch)
+    or via a text/plain body (cross-origin navigator.sendBeacon, which can
+    only send simple-request content types without preflight)."""
+    raw = await request.body()
+    if not raw:
+        raise HTTPException(status_code=422, detail="empty body")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"invalid JSON: {exc}")
+    try:
+        return AnalyticsEventCreate.model_validate(data)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors())
+
+
 @router.post(
     "/{presentation_id}/analytics/event",
     response_model=AnalyticsEventRead,
@@ -26,9 +45,10 @@ router = APIRouter()
 )
 async def record_event(
     presentation_id: UUID,
-    payload: AnalyticsEventCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> AnalyticsEventRead:
+    payload = await _parse_event_payload(request)
     if payload.event_type not in ALLOWED_EVENTS:
         raise HTTPException(
             status_code=400,

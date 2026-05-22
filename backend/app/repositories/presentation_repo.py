@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.presentation import Presentation, Slide
@@ -14,18 +14,20 @@ class PresentationRepository(BaseRepository[Presentation]):
     async def list_for_workspace(
         self, workspace_id: str, limit: int = 50, offset: int = 0
     ) -> tuple[list[Presentation], int]:
-        result = await self.db.execute(
+        items_result = await self.db.execute(
             select(Presentation)
             .where(Presentation.workspace_id == workspace_id)
             .order_by(Presentation.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
-        items = list(result.scalars().all())
-        total_result = await self.db.execute(
-            select(Presentation).where(Presentation.workspace_id == workspace_id)
+        items = list(items_result.scalars().all())
+        count_result = await self.db.execute(
+            select(func.count())
+            .select_from(Presentation)
+            .where(Presentation.workspace_id == workspace_id)
         )
-        total = len(list(total_result.scalars().all()))
+        total = count_result.scalar() or 0
         return items, total
 
     async def get_with_slides(self, presentation_id: UUID) -> Presentation | None:
