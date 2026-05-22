@@ -143,6 +143,50 @@ async def test_deterministic_generate_speaker_notes_returns_questions():
 
 
 @pytest.mark.asyncio
+async def test_pad_to_target_fills_when_llm_under_delivers():
+    """If the LLM returns fewer slides than asked, _pad_to_target must top up
+    with deterministic template slides so the deck has the requested length.
+    Important: padding starts at the SAME index where the LLM stopped, so the
+    section progression continues (Hook → Problem → Solution → …)."""
+    from app.api.v1.ai import _pad_to_target
+    from app.services.ai.providers import GeneratedSlide
+
+    # Simulate the LLM returning only 1 slide.
+    llm_output = [GeneratedSlide(title="The Hook", layout="title-only", body="- one")]
+    padded = await _pad_to_target(llm_output, target=5, prompt="x", deck_type="pitch")
+    assert len(padded) == 5
+    # The LLM's first slide must be preserved verbatim.
+    assert padded[0].title == "The Hook"
+    # The remaining four come from the deterministic template (Problem, Solution, …).
+    assert padded[1].title != "The Hook"
+
+
+@pytest.mark.asyncio
+async def test_pad_to_target_is_noop_when_count_matches():
+    from app.api.v1.ai import _pad_to_target
+    from app.services.ai.providers import GeneratedSlide
+
+    full = [
+        GeneratedSlide(title=f"s{i}", layout="title-only", body=f"- b{i}") for i in range(5)
+    ]
+    padded = await _pad_to_target(full, target=5, prompt="x", deck_type="pitch")
+    assert len(padded) == 5
+    assert [s.title for s in padded] == ["s0", "s1", "s2", "s3", "s4"]
+
+
+@pytest.mark.asyncio
+async def test_pad_to_target_trims_when_llm_over_delivers():
+    from app.api.v1.ai import _pad_to_target
+    from app.services.ai.providers import GeneratedSlide
+
+    too_many = [
+        GeneratedSlide(title=f"s{i}", layout="title-only", body=f"- b{i}") for i in range(8)
+    ]
+    padded = await _pad_to_target(too_many, target=5, prompt="x", deck_type="pitch")
+    assert len(padded) == 5
+
+
+@pytest.mark.asyncio
 async def test_generate_deck_endpoint_creates_presentation(client):
     response = await client.post(
         "/api/v1/ai/generate-deck",

@@ -95,6 +95,21 @@ async def _build_enriched_prompt(
     return enriched, len(hits)
 
 
+async def _pad_to_target(
+    generated: list, target: int, prompt: str, deck_type: str
+) -> list:
+    """Small models (gemma4:e2b) sometimes return fewer slides than asked,
+    even after EXACT-COUNT instructions. Pad with deterministic template
+    slides so the user always gets the deck length they requested. The
+    template continues the section progression the user implicitly asked
+    for (Hook → Problem → Solution → …)."""
+    if len(generated) >= target:
+        return list(generated[:target])
+    deterministic = DeterministicProvider()
+    template_slides = await deterministic.generate_deck(prompt, target, deck_type)
+    return list(generated) + list(template_slides[len(generated):target])
+
+
 async def _persist_generated_slides(
     presentation: Presentation,
     generated: list,
@@ -143,6 +158,10 @@ async def generate_deck(
         raise HTTPException(
             status_code=502, detail=f"AI provider '{provider.name}' failed: {exc}"
         )
+    # Top up if the model under-delivered (small models occasionally do).
+    generated = await _pad_to_target(
+        generated, payload.target_slides, payload.prompt, payload.deck_type
+    )
     await _persist_generated_slides(presentation, generated, payload.replace_existing, db)
     await db.commit()
     await db.refresh(presentation, ["slides"])
@@ -250,6 +269,40 @@ async def generate_deck_stream(
             else:
                 yield _sse("error", {"message": f"{active.name}: {exc}"})
                 return
+
+        # Top-up: if the LLM stopped short of the target, fill with deterministic
+        # template slides so the user gets the deck length they asked for.
+        if slides_emitted < payload.target_slides:
+            deterministic = DeterministicProvider()
+            deterministic.stream_delay_ms = 0
+            template = await deterministic.generate_deck(
+                payload.prompt, payload.target_slides, payload.deck_type
+            )
+            for gen in template[slides_emitted:payload.target_slides]:
+                layout = pick_layout(gen.title, gen.body, gen.layout)
+                slide = Slide(
+                    presentation_id=presentation.id,
+                    position=position,
+                    title=gen.title,
+                    body=gen.body,
+                    layout=layout,
+                )
+                db.add(slide)
+                await db.commit()
+                await db.refresh(slide)
+                yield _sse(
+                    "slide",
+                    {
+                        "id": str(slide.id),
+                        "position": slide.position,
+                        "title": slide.title,
+                        "body": slide.body,
+                        "layout": slide.layout,
+                    },
+                )
+                position += 1
+                slides_emitted += 1
+
         await realtime.notify_invalidate(presentation.id, "ai_generated")
         yield _sse(
             "done",
