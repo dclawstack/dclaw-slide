@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { Info, Sparkles, X } from "lucide-react";
 
 import { api, type GenerateDeckInput } from "@/lib/api";
 import { SlideCanvas } from "@/components/slide-canvas";
@@ -88,6 +88,19 @@ export function StreamingOverlay({
             <X className="h-4 w-4" />
           </button>
         </header>
+
+        {provider === "deterministic" && (
+          <div className="flex items-start gap-2 border-b border-amber-200 bg-amber-50 px-6 py-2 text-xs text-amber-800">
+            <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              <strong>Demo mode.</strong> Slides come from a prompt-aware template,
+              not a real LLM. For genuinely-generated content, run{" "}
+              <code className="rounded bg-amber-100 px-1 font-mono">ollama serve</code>{" "}
+              locally or set <code className="rounded bg-amber-100 px-1 font-mono">OPENROUTER_API_KEY</code>{" "}
+              in <code className="rounded bg-amber-100 px-1 font-mono">.env</code>.
+            </span>
+          </div>
+        )}
 
         <div className="h-1 w-full bg-slate-100">
           <div

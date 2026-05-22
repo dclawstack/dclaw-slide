@@ -20,6 +20,35 @@ async def test_deterministic_generate_deck_pitch_template():
 
 
 @pytest.mark.asyncio
+async def test_deterministic_slide_bodies_reference_the_prompt_subject():
+    """The whole point of this provider being 'usable': non-title slides
+    should mention the user's topic, not generic placeholders. Without this,
+    a pitch for legal-AI ends up reading the same as a pitch for dog-walking.
+    """
+    provider = DeterministicProvider()
+    slides = await provider.generate_deck(
+        prompt="AI tool for legal contract review", target_slides=6, deck_type="pitch"
+    )
+    # Skip the hero slide (it always echoes the prompt); ensure the rest of
+    # the deck weaves the subject into the bullets.
+    bodies = [s.body for s in slides[1:]]
+    matching = sum(1 for b in bodies if "legal contract review" in b)
+    assert matching >= 2, f"only {matching}/{len(bodies)} slides mention the subject"
+
+
+@pytest.mark.asyncio
+async def test_deterministic_strips_imperative_prefixes_from_subject():
+    """User prompts like 'create a 5-slide pitch about X' should yield slides
+    talking about X, not 'create a 5-slide pitch about X'."""
+    from app.services.ai.providers import _extract_subject
+    assert _extract_subject("Create a 5-slide pitch about legal AI") == "legal AI"
+    assert _extract_subject("a deck for our Series A on robotics") == "our Series A on robotics"
+    assert _extract_subject("8-slide pitch for sales analytics") == "sales analytics"
+    # No prefix → returned unchanged.
+    assert _extract_subject("Quarterly board review") == "Quarterly board review"
+
+
+@pytest.mark.asyncio
 async def test_deterministic_does_not_leak_todo_placeholders():
     """When target_slides exceeds the template length, the extra slides should
     be prompt-derived deep dives — never a literal 'TODO' placeholder."""

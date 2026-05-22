@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -89,45 +90,100 @@ class LLMProvider(ABC):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-_PITCH_SECTIONS = [
-    ("Hook", "title-only", "- Why now\n- Who this is for"),
-    ("Problem", "title-bullets", "- The pain we measured\n- Why incumbents miss it"),
-    ("Solution", "title-bullets", "- Our wedge\n- Demo screenshot"),
-    ("Why now", "title-bullets", "- Tailwind 1\n- Tailwind 2"),
-    ("Market", "title-bullets", "- TAM / SAM / SOM\n- Beachhead"),
-    ("Traction", "title-bullets", "- Pilots\n- Revenue / engagement"),
-    ("Business model", "title-bullets", "- Pricing\n- Unit economics"),
-    ("Why us", "title-bullets", "- Founding insight\n- Why we win"),
-    ("Roadmap", "title-bullets", "- Next 90 days\n- Next 12 months"),
-    ("Ask", "title-bullets", "- The round\n- Use of funds"),
-]
-
-_REPORT_SECTIONS = [
-    ("Executive summary", "title-only", "- Key result\n- One-line outcome"),
-    ("Methodology", "title-bullets", "- Data sources\n- Time window"),
-    ("Findings", "title-bullets", "- Finding 1\n- Finding 2\n- Finding 3"),
-    ("Deep dive", "two-column", "- Left: data\n- Right: interpretation"),
-    ("Risks", "title-bullets", "- Risk 1\n- Risk 2"),
-    ("Recommendations", "title-bullets", "- Action 1\n- Action 2"),
-    ("Appendix", "section-header", ""),
-]
-
-_TRAINING_SECTIONS = [
-    ("Welcome", "title-only", "- What you'll learn"),
-    ("Why this matters", "title-bullets", "- Outcome\n- Time investment"),
-    ("Core concept", "title-bullets", "- Definition\n- Example"),
-    ("Walkthrough", "two-column", "- Step\n- Screenshot"),
-    ("Practice", "title-bullets", "- Exercise\n- Checkpoint"),
-    ("Q&A", "section-header", ""),
-]
+def _extract_subject(prompt: str) -> str:
+    """Strip imperative verbs and slide-count prefaces so the rest of the
+    template can refer to the topic naturally. Pure best-effort heuristic —
+    real semantics come from Ollama/OpenRouter."""
+    text = prompt.strip()
+    # Strip common deck-size prefaces like "5-slide pitch about X" or
+    # "create a deck for X".
+    patterns = [
+        r"^(?:please\s+)?(?:can\s+you\s+)?(?:create|generate|make|build|write|prepare|design|put\s+together)\s+(?:a\s+|an\s+)?(?:deck|pitch|presentation|report|slides?)?\s*(?:about\s+|on\s+|for\s+)?",
+        r"^\d+[\s-]*slides?\s+(?:pitch|deck|presentation|report)?\s*(?:about\s+|on\s+|for\s+)?",
+        r"^(?:a\s+|an\s+)?(?:pitch|deck|presentation|report)\s+(?:about\s+|on\s+|for\s+)",
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE).strip()
+    return text or prompt.strip() or "your idea"
 
 
-def _section_template(deck_type: str) -> list[tuple[str, str, str]]:
+def _short(text: str, n: int) -> str:
+    """Compact a subject phrase for inline use; preserves whole words."""
+    text = text.strip()
+    if len(text) <= n:
+        return text
+    cut = text[:n].rsplit(" ", 1)[0]
+    return cut + "…"
+
+
+def _pitch_sections(subject: str) -> list[tuple[str, str, str]]:
+    s = _short(subject, 70)
+    return [
+        ("Hook", "title-only",
+         f"- {s}\n- Why now, in one line"),
+        ("Problem", "title-bullets",
+         f"- The pain {s} addresses today\n- Why current tools fall short\n- The cost of doing nothing"),
+        ("Solution", "title-bullets",
+         f"- How {s} works\n- The wedge versus incumbents\n- Demo screenshot here"),
+        ("Why now", "title-bullets",
+         f"- Market tailwind driving {s}\n- Technology unlock that makes it possible now\n- Window-closing argument"),
+        ("Market", "title-bullets",
+         f"- TAM / SAM / SOM for {s}\n- Beachhead segment we win first\n- Expansion path from there"),
+        ("Traction", "title-bullets",
+         f"- Pilots / LOIs for {s}\n- Revenue or engagement to date\n- Pipeline coverage"),
+        ("Business model", "title-bullets",
+         f"- Pricing for {s}\n- Unit economics at scale\n- Path to profitability"),
+        ("Why us", "title-bullets",
+         f"- Founding insight on {s}\n- Unfair advantage we bring\n- Why this team wins"),
+        ("Roadmap", "title-bullets",
+         f"- Next 90 days for {s}\n- Next 12 months\n- Three-year vision"),
+        ("Ask", "title-bullets",
+         f"- The round we're raising\n- Use of funds for {s}\n- Milestones to next raise"),
+    ]
+
+
+def _report_sections(subject: str) -> list[tuple[str, str, str]]:
+    s = _short(subject, 70)
+    return [
+        ("Executive summary", "title-only",
+         f"- Headline finding about {s}\n- One-line outcome"),
+        ("Methodology", "title-bullets",
+         f"- Data sources used for {s}\n- Time window covered\n- Sample size and caveats"),
+        ("Findings", "title-bullets",
+         f"- Top finding on {s}\n- Second finding\n- Third finding"),
+        ("Deep dive", "two-column",
+         f"- Quantitative signal on {s}\n- Qualitative interpretation"),
+        ("Risks", "title-bullets",
+         f"- Largest risk to {s}\n- Mitigation strategy\n- Watchlist items"),
+        ("Recommendations", "title-bullets",
+         f"- First action on {s}\n- Owner + due date\n- Success metric"),
+        ("Appendix", "section-header", ""),
+    ]
+
+
+def _training_sections(subject: str) -> list[tuple[str, str, str]]:
+    s = _short(subject, 70)
+    return [
+        ("Welcome", "title-only",
+         f"- What you'll learn about {s}\n- Time investment"),
+        ("Why this matters", "title-bullets",
+         f"- Outcome you'll have after this session\n- How {s} unlocks it\n- Who this is for"),
+        ("Core concept", "title-bullets",
+         f"- Definition of the key idea in {s}\n- Worked example\n- Common misconception"),
+        ("Walkthrough", "two-column",
+         f"- Step-by-step using {s}\n- Screenshot or live demo"),
+        ("Practice", "title-bullets",
+         f"- Exercise to try with {s}\n- Checkpoint question\n- Where to get help"),
+        ("Q&A", "section-header", ""),
+    ]
+
+
+def _section_template(deck_type: str, subject: str) -> list[tuple[str, str, str]]:
     if deck_type == "report":
-        return _REPORT_SECTIONS
+        return _report_sections(subject)
     if deck_type == "training":
-        return _TRAINING_SECTIONS
-    return _PITCH_SECTIONS
+        return _training_sections(subject)
+    return _pitch_sections(subject)
 
 
 class DeterministicProvider(LLMProvider):
@@ -149,26 +205,39 @@ class DeterministicProvider(LLMProvider):
     async def generate_deck(
         self, prompt: str, target_slides: int, deck_type: str
     ) -> list[GeneratedSlide]:
-        template = _section_template(deck_type)
+        subject = _extract_subject(prompt)
+        template = _section_template(deck_type, subject)
         target = max(1, min(target_slides, 16))
-        prompt_hint = prompt.strip()[:160] or "Untitled deck"
-        # If the user wants more slides than the template has, fan out with
-        # prompt-derived "deep dive" slides instead of leaking "TODO" strings.
         sections: list[tuple[str, str, str]] = list(template[:target])
+        # Prompt-aware "deep dive" slides if user wants more than the template has.
         extras = max(0, target - len(template))
-        for n in range(1, extras + 1):
+        deep_dive_angles = [
+            "Operational angle",
+            "Financial angle",
+            "Competitive angle",
+            "Customer angle",
+            "Risk angle",
+            "Differentiation angle",
+        ]
+        for n in range(extras):
+            angle = deep_dive_angles[n % len(deep_dive_angles)]
+            s = _short(subject, 70)
             sections.append(
                 (
-                    f"Deep dive {n}",
+                    f"Deep dive — {angle.split(' ')[0]}",
                     "title-bullets",
-                    f"- Additional angle on: {prompt_hint}\n- Supporting evidence\n- Open question",
+                    f"- {angle} on {s}\n- Supporting evidence\n- Open question to answer",
                 )
             )
         out: list[GeneratedSlide] = []
+        title_slide = _short(subject, 72) or "Untitled deck"
         for idx, (title, layout, body) in enumerate(sections):
             if idx == 0:
-                title = prompt_hint if len(prompt_hint) <= 60 else f"{prompt_hint[:57]}…"
-                body = "- " + (prompt.strip() or "Built with DClaw Slide")
+                # Hero slide: title is the user's subject; body is a single
+                # subtitle line so the layout picker keeps it as title-only
+                # (two short bullets would get re-classified to two-column).
+                title = title_slide
+                body = f"- {_short(subject, 100)}"
                 layout = "title-only"
             out.append(GeneratedSlide(title=title, layout=layout, body=body))
         return out
