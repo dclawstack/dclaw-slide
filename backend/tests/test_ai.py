@@ -69,6 +69,28 @@ def test_coerce_slides_accepts_top_level_array():
     assert slides[0].title == "A"
 
 
+def test_coerce_slides_reflows_single_line_bullets():
+    """Small models sometimes emit bullets on one line: '- a - b - c'. We
+    re-flow into one-per-line so the layout picker counts them correctly."""
+    from app.services.ai.providers import _coerce_slides
+
+    raw = {
+        "slides": [
+            {
+                "title": "x",
+                "layout": "title-bullets",
+                "body": "- Freelancers forget invoices. - Payments are late. - It costs them time.",
+            }
+        ]
+    }
+    slides = _coerce_slides(raw, target_slides=3)
+    assert slides[0].body.count("\n") == 2
+    lines = slides[0].body.split("\n")
+    assert all(l.startswith("- ") for l in lines)
+    assert lines[0] == "- Freelancers forget invoices."
+    assert lines[1] == "- Payments are late."
+
+
 def test_coerce_slides_accepts_alternative_keys():
     """Small models sometimes wrap slides under 'deck' or 'presentation'."""
     from app.services.ai.providers import _coerce_slides

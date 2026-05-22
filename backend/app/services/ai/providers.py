@@ -40,20 +40,27 @@ class SpeakerNotes:
 
 
 SYSTEM_DECK_PROMPT = (
-    "You are DClaw Slide's deck-generation agent. "
-    "Return strict JSON of the form "
+    "Write slides in plain everyday English a 12-year-old would understand. "
+    "Each bullet is one short sentence, max 12 words. Active voice. "
+    "No buzzwords: avoid leverage, synergy, scalable, seamless, ecosystem, "
+    "MLOps, ROI, cutting-edge, empower, unlock. Use simple words instead. "
+    "No placeholder text like [X] or [Your Tool Name] — use the user's topic. "
+    "Return EXACTLY the number of slides the user asks for, no more, no fewer. "
+    "Return strict JSON only, no prose: "
     '{"slides": [{"title": str, "layout": str, "body": str}, ...]}. '
     "Allowed layouts: title-only, title-bullets, section-header, quote, two-column. "
-    "Body should be markdown bullets, each on its own line, prefixed with '- '. "
-    "Slides should be sharp, concrete, founder-grade. Do not include any prose outside the JSON."
+    "Body is markdown bullets, one per line, each prefixed with '- '."
 )
 
 SYSTEM_NOTES_PROMPT = (
-    "You are a presentation coach. For the given slide, return strict JSON "
-    '{"notes": str, "likely_questions": [str, ...]}. '
-    "Notes are 2-4 sentences a presenter would actually say. "
-    "List 3-5 questions an audience is likely to ask after this slide. "
-    "Do not include any prose outside the JSON."
+    "You write speaker notes in plain, everyday English. "
+    "Return strict JSON {\"notes\": str, \"likely_questions\": [str, ...]}. "
+    "Notes are 2-4 short sentences the presenter would actually say out loud. "
+    "Use simple words. No jargon, no buzzwords, no business-speak. "
+    "Active voice. Short sentences. "
+    "List 3-5 questions a real audience member would ask after this slide, "
+    "phrased the way a person actually talks (not formal). "
+    "Return only the JSON, no prose outside it."
 )
 
 
@@ -316,6 +323,27 @@ def _parse_llm_json(content: str) -> dict | list:
     raise ValueError(f"could not extract JSON from LLM response: {content[:200]!r}")
 
 
+def _normalize_body(body: str) -> str:
+    """Some models emit bullets on a single line ("- one - two - three") rather
+    than one-per-line. Re-flow them into the canonical newline-separated form
+    so the layout picker and slide renderer can count bullets correctly.
+    """
+    body = body.strip()
+    if not body:
+        return body
+    # If the body already contains newline-separated bullets, leave it alone.
+    if "\n" in body:
+        return body
+    # Split on the literal " - " separator that appears between bullets when
+    # they're all on one line. Drop empty fragments.
+    parts = [p.strip() for p in re.split(r"\s+-\s+", body) if p.strip()]
+    if len(parts) <= 1:
+        return body
+    # If the first fragment retained a leading "- ", strip it before re-prefixing.
+    parts = [p.lstrip("- ").strip() for p in parts]
+    return "\n".join(f"- {p}" for p in parts if p)
+
+
 def _coerce_slides(raw: object, target_slides: int) -> list[GeneratedSlide]:
     """Accept either {"slides": [...]} or a top-level array; small models
     sometimes skip the wrapping object."""
@@ -345,7 +373,7 @@ def _coerce_slides(raw: object, target_slides: int) -> list[GeneratedSlide]:
             GeneratedSlide(
                 title=str(item.get("title", "")).strip()[:255] or "Untitled",
                 layout=str(item.get("layout", "title-bullets")).strip() or "title-bullets",
-                body=str(item.get("body", "")).strip(),
+                body=_normalize_body(str(item.get("body", ""))),
             )
         )
     if not out:
@@ -400,8 +428,9 @@ class OllamaProvider(LLMProvider):
         self, prompt: str, target_slides: int, deck_type: str
     ) -> list[GeneratedSlide]:
         user = (
-            f"Deck type: {deck_type}. Target slide count: {target_slides}. "
-            f"User request: {prompt}"
+            f"Generate EXACTLY {target_slides} slides for a {deck_type}.\n"
+            f"Topic: {prompt}\n"
+            f"Return a JSON array of length {target_slides} under the 'slides' key."
         )
         raw = await self._chat(SYSTEM_DECK_PROMPT, user)
         return _coerce_slides(raw, target_slides)
@@ -459,8 +488,9 @@ class OpenRouterProvider(LLMProvider):
         self, prompt: str, target_slides: int, deck_type: str
     ) -> list[GeneratedSlide]:
         user = (
-            f"Deck type: {deck_type}. Target slide count: {target_slides}. "
-            f"User request: {prompt}"
+            f"Generate EXACTLY {target_slides} slides for a {deck_type}.\n"
+            f"Topic: {prompt}\n"
+            f"Return a JSON array of length {target_slides} under the 'slides' key."
         )
         raw = await self._chat(SYSTEM_DECK_PROMPT, user)
         return _coerce_slides(raw, target_slides)
