@@ -188,6 +188,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ outline, replace_existing }),
     }),
+  createSlide: (
+    presentationId: string,
+    input: { title?: string; body?: string; layout?: string; position?: number } = {},
+  ) =>
+    request<Slide>(`/api/v1/presentations/${presentationId}/slides`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: input.title ?? "",
+        body: input.body ?? "",
+        layout: input.layout ?? "title-bullets",
+        speaker_notes: "",
+        ...(input.position !== undefined ? { position: input.position } : {}),
+      }),
+    }),
   updateSlide: (presentationId: string, slideId: string, patch: Partial<Slide>) =>
     request<Slide>(`/api/v1/presentations/${presentationId}/slides/${slideId}`, {
       method: "PATCH",

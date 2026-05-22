@@ -31,7 +31,7 @@ import {
   type Theme,
 } from "@/lib/api";
 import { useToast } from "@/components/providers";
-import { GripVertical } from "lucide-react";
+import { GripVertical, Plus } from "lucide-react";
 import { SlideCanvas } from "@/components/slide-canvas";
 
 function newUserId(): string {
@@ -78,6 +78,8 @@ export default function PresentationDetail() {
   const [busy, setBusy] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [selectedSlideId, setSelectedSlideId] = useState<string | null>(null);
+  const [outlineOpen, setOutlineOpen] = useState(false);
   const [notesFor, setNotesFor] = useState<string | null>(null);
   const [notesPanel, setNotesPanel] = useState<{
     slideId: string;
@@ -326,6 +328,23 @@ export default function PresentationDetail() {
     }
   }
 
+  async function addBlankSlide() {
+    if (!id) return;
+    try {
+      const slide = await api.createSlide(id, {
+        title: "New slide",
+        body: "",
+        layout: "title-bullets",
+      });
+      setPresentation((prev) =>
+        prev ? { ...prev, slides: [...prev.slides, slide] } : prev,
+      );
+      setSelectedSlideId(slide.id);
+    } catch (e) {
+      toast.push(e instanceof ApiError ? e.message : "Add slide failed", "error");
+    }
+  }
+
   async function deleteDeck() {
     if (!id || !presentation) return;
     if (!confirm(`Delete "${presentation.title}"? This cannot be undone.`)) return;
@@ -471,175 +490,291 @@ export default function PresentationDetail() {
           </section>
         )}
 
-        <section className="mt-6 grid gap-8 lg:grid-cols-[2fr_3fr]">
-          <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section className="mt-6">
+          <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Paste an outline
+              {presentation.slides.length} slide{presentation.slides.length === 1 ? "" : "s"}
             </h2>
-            <p className="text-xs text-slate-500">
-              Markdown. Each <code>#</code> heading becomes a new slide. Bullets under it become body text.
-              Existing slides are replaced.
-            </p>
-            <textarea
-              value={outline}
-              onChange={(e) => setOutline(e.target.value)}
-              className="h-72 w-full resize-y rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
-            />
             <button
-              onClick={handleApplyOutline}
-              disabled={busy}
-              className="w-full rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+              onClick={() => setOutlineOpen((v) => !v)}
+              className="rounded-md border border-slate-300 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
             >
-              {busy ? "Building…" : "Build slides from outline"}
+              {outlineOpen ? "Hide outline" : "Paste outline"}
             </button>
           </div>
 
-          <div className="space-y-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Slides
-            </h2>
-            {presentation.slides.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
-                No slides yet. Paste an outline on the left.
+          {outlineOpen && (
+            <div className="mb-6 space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <p className="text-xs text-slate-500">
+                Markdown. Each <code>#</code> heading becomes a new slide. Bullets under it
+                become body text. <strong>Existing slides are replaced.</strong>
+              </p>
+              <textarea
+                value={outline}
+                onChange={(e) => setOutline(e.target.value)}
+                className="h-60 w-full resize-y rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+              />
+              <button
+                onClick={handleApplyOutline}
+                disabled={busy}
+                className="w-full rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50"
+              >
+                {busy ? "Building…" : "Build slides from outline"}
+              </button>
+            </div>
+          )}
+
+          {presentation.slides.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
+              No slides yet — click <strong>Paste outline</strong> above or use{" "}
+              <strong>+ Add slide</strong> below.
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {presentation.slides.map((slide, idx) => (
+              <div
+                key={slide.id}
+                draggable
+                onDragStart={(e) => {
+                  setDragId(slide.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  e.dataTransfer.setData("text/plain", slide.id);
+                }}
+                onDragEnd={() => {
+                  setDragId(null);
+                  setDragOverId(null);
+                }}
+                onDragOver={(e) => {
+                  if (!dragId || dragId === slide.id) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  setDragOverId(slide.id);
+                }}
+                onDragLeave={() => {
+                  if (dragOverId === slide.id) setDragOverId(null);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  if (dragId && dragId !== slide.id) reorderTo(dragId, slide.id);
+                  setDragId(null);
+                  setDragOverId(null);
+                }}
+                onClick={() => setSelectedSlideId(slide.id)}
+                className={`group cursor-pointer rounded-2xl border bg-white p-3 shadow-sm transition hover:border-rose-300 hover:shadow-md ${
+                  selectedSlideId === slide.id ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-200"
+                } ${dragOverId === slide.id ? "ring-2 ring-rose-300" : ""} ${
+                  dragId === slide.id ? "opacity-50" : ""
+                }`}
+              >
+                <SlideCanvas
+                  slide={slide}
+                  index={idx}
+                  total={presentation.slides.length}
+                  theme={theme}
+                  brandKit={brandKit}
+                  variant="thumb"
+                />
+                <div className="mt-2 flex items-center justify-between px-1 text-xs text-slate-500">
+                  <span className="font-mono">{String(idx + 1).padStart(2, "0")}</span>
+                  <span className="truncate px-2">{slide.title || "Untitled"}</span>
+                  <GripVertical
+                    className="h-4 w-4 cursor-grab text-slate-300 group-hover:text-slate-500"
+                    aria-label="Drag to reorder"
+                  />
+                </div>
               </div>
-            ) : (
-              <ol className="space-y-3">
-                {presentation.slides.map((slide, idx) => (
-                  <li
-                    key={slide.id}
-                    draggable
-                    onDragStart={(e) => {
-                      setDragId(slide.id);
-                      e.dataTransfer.effectAllowed = "move";
-                      e.dataTransfer.setData("text/plain", slide.id);
-                    }}
-                    onDragEnd={() => {
-                      setDragId(null);
-                      setDragOverId(null);
-                    }}
-                    onDragOver={(e) => {
-                      if (!dragId || dragId === slide.id) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = "move";
-                      setDragOverId(slide.id);
-                    }}
-                    onDragLeave={() => {
-                      if (dragOverId === slide.id) setDragOverId(null);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      if (dragId && dragId !== slide.id) {
-                        reorderTo(dragId, slide.id);
-                      }
-                      setDragId(null);
-                      setDragOverId(null);
-                    }}
-                    className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
-                      dragOverId === slide.id ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-200"
-                    } ${dragId === slide.id ? "opacity-50" : ""}`}
-                    style={{ borderLeft: `4px solid ${accent}` }}
-                  >
-                    <div className="mb-2 flex items-center justify-between">
-                      <span className="flex items-center gap-1 text-xs uppercase tracking-wide text-slate-400">
-                        <GripVertical
-                          className="h-4 w-4 cursor-grab text-slate-300"
-                          aria-label="Drag to reorder"
-                        />
-                        Slide {idx + 1} · {slide.layout}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => generateNotes(slide)}
-                          disabled={notesFor === slide.id}
-                          className="rounded p-1 text-rose-500 hover:bg-rose-50 disabled:opacity-50"
-                          title="Generate speaker notes (AI)"
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => moveSlide(slide, -1)}
-                          disabled={idx === 0}
-                          className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
-                          title="Move up"
-                        >
-                          <ChevronUp className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => moveSlide(slide, 1)}
-                          disabled={idx === presentation.slides.length - 1}
-                          className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
-                          title="Move down"
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => deleteSlide(slide)}
-                          className="rounded p-1 text-rose-500 hover:bg-rose-50"
-                          title="Delete slide"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
-                      <div className="md:row-span-2">
-                        <SlideCanvas
-                          slide={slide}
-                          index={idx}
-                          total={presentation.slides.length}
-                          theme={theme}
-                          brandKit={brandKit}
-                          variant="thumb"
-                        />
-                      </div>
-                      <div>
-                        <input
-                          defaultValue={slide.title}
-                          onBlur={(e) =>
-                            e.target.value !== slide.title && patchSlide(slide, { title: e.target.value })
-                          }
-                          placeholder="Slide title"
-                          className="w-full bg-transparent text-lg font-semibold text-slate-900 outline-none"
-                        />
-                        <textarea
-                          defaultValue={slide.body}
-                          onBlur={(e) =>
-                            e.target.value !== slide.body && patchSlide(slide, { body: e.target.value })
-                          }
-                          placeholder="Bullets / body"
-                          className="mt-2 w-full resize-y bg-transparent text-sm text-slate-600 outline-none"
-                          rows={Math.max(3, (slide.body.match(/\n/g)?.length ?? 0) + 1)}
-                        />
-                      </div>
-                    </div>
-                    {slide.speaker_notes && (
-                      <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-600">
-                        <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">
-                          Speaker notes
-                        </div>
-                        {slide.speaker_notes}
-                      </div>
-                    )}
-                    {notesPanel?.slideId === slide.id && (
-                      <div className="mt-3 rounded-md border border-rose-200 bg-rose-50/60 p-3 text-xs text-slate-700">
-                        <div className="mb-1 font-medium uppercase tracking-wide text-rose-700">
-                          Likely audience questions · {notesPanel.provider}
-                        </div>
-                        <ul className="space-y-1">
-                          {notesPanel.likely_questions.map((q, i) => (
-                            <li key={i}>• {q}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
+            ))}
+
+            <button
+              onClick={addBlankSlide}
+              className="flex aspect-[16/9] flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-rose-400 hover:bg-rose-50/40 hover:text-rose-600"
+            >
+              <Plus className="h-8 w-8" />
+              <span className="text-sm font-medium">Add slide</span>
+            </button>
           </div>
         </section>
       </div>
+
+      {selectedSlideId && (
+        <SlideEditDrawer
+          slide={presentation.slides.find((s) => s.id === selectedSlideId) ?? null}
+          index={presentation.slides.findIndex((s) => s.id === selectedSlideId)}
+          total={presentation.slides.length}
+          notesPanel={notesPanel}
+          notesFor={notesFor}
+          onClose={() => setSelectedSlideId(null)}
+          onPatch={patchSlide}
+          onDelete={(s) => {
+            deleteSlide(s);
+            setSelectedSlideId(null);
+          }}
+          onMove={moveSlide}
+          onGenerateNotes={generateNotes}
+        />
+      )}
     </main>
+  );
+}
+
+function SlideEditDrawer({
+  slide,
+  index,
+  total,
+  notesPanel,
+  notesFor,
+  onClose,
+  onPatch,
+  onDelete,
+  onMove,
+  onGenerateNotes,
+}: {
+  slide: Slide | null;
+  index: number;
+  total: number;
+  notesPanel: {
+    slideId: string;
+    notes: string;
+    likely_questions: string[];
+    provider: string;
+  } | null;
+  notesFor: string | null;
+  onClose: () => void;
+  onPatch: (slide: Slide, patch: Partial<Slide>) => void;
+  onDelete: (slide: Slide) => void;
+  onMove: (slide: Slide, direction: -1 | 1) => void;
+  onGenerateNotes: (slide: Slide) => void;
+}) {
+  if (!slide) return null;
+  const showQuestions = notesPanel?.slideId === slide.id;
+  return (
+    <div className="fixed inset-0 z-40 flex" onClick={onClose}>
+      <div className="flex-1 bg-slate-900/30 backdrop-blur-sm" />
+      <aside
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-screen w-full max-w-xl flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
+      >
+        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+          <div>
+            <div className="text-xs uppercase tracking-wide text-slate-400">
+              Slide {String(index + 1).padStart(2, "0")} / {String(total).padStart(2, "0")}
+            </div>
+            <select
+              value={slide.layout}
+              onChange={(e) => onPatch(slide, { layout: e.target.value })}
+              className="-ml-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-slate-900 hover:border-slate-300 focus:border-rose-500 focus:outline-none"
+            >
+              <option value="title-only">title-only</option>
+              <option value="title-bullets">title-bullets</option>
+              <option value="section-header">section-header</option>
+              <option value="quote">quote</option>
+              <option value="two-column">two-column</option>
+            </select>
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onMove(slide, -1)}
+              disabled={index === 0}
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+              title="Move up"
+            >
+              <ChevronUp className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onMove(slide, 1)}
+              disabled={index === total - 1}
+              className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"
+              title="Move down"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onGenerateNotes(slide)}
+              disabled={notesFor === slide.id}
+              className="rounded p-1 text-rose-500 hover:bg-rose-50 disabled:opacity-50"
+              title="Generate speaker notes (AI)"
+            >
+              <MessageSquare className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => onDelete(slide)}
+              className="rounded p-1 text-rose-500 hover:bg-rose-50"
+              title="Delete slide"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+            <button
+              onClick={onClose}
+              className="ml-2 rounded p-1 text-slate-500 hover:bg-slate-100"
+              title="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-1 space-y-5 px-5 py-4">
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Title
+            </label>
+            <input
+              key={`title-${slide.id}`}
+              defaultValue={slide.title}
+              onBlur={(e) =>
+                e.target.value !== slide.title && onPatch(slide, { title: e.target.value })
+              }
+              placeholder="Slide title"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-semibold text-slate-900 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Body — one bullet per line, prefix with <code>-</code>
+            </label>
+            <textarea
+              key={`body-${slide.id}`}
+              defaultValue={slide.body}
+              onBlur={(e) =>
+                e.target.value !== slide.body && onPatch(slide, { body: e.target.value })
+              }
+              placeholder="- Bullet one&#10;- Bullet two"
+              rows={Math.max(6, (slide.body.match(/\n/g)?.length ?? 0) + 2)}
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-medium uppercase tracking-wide text-slate-500">
+              Speaker notes
+            </label>
+            <textarea
+              key={`notes-${slide.id}`}
+              defaultValue={slide.speaker_notes}
+              onBlur={(e) =>
+                e.target.value !== slide.speaker_notes &&
+                onPatch(slide, { speaker_notes: e.target.value })
+              }
+              placeholder="What you'll say while this slide is up…"
+              rows={4}
+              className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
+            />
+          </div>
+          {showQuestions && notesPanel && (
+            <div className="rounded-lg border border-rose-200 bg-rose-50/60 p-3 text-sm text-slate-700">
+              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-rose-700">
+                Likely audience questions · {notesPanel.provider}
+              </div>
+              <ul className="space-y-1">
+                {notesPanel.likely_questions.map((q, i) => (
+                  <li key={i}>• {q}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
   );
 }
 
