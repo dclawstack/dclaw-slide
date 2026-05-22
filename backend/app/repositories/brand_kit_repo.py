@@ -1,4 +1,5 @@
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.brand_kit import BrandKit
@@ -19,5 +20,16 @@ class BrandKitRepository(BaseRepository[BrandKit]):
         existing = await self.get_for_workspace(workspace_id)
         if existing is not None:
             return existing
+        # Two concurrent requests (common in React StrictMode dev) can both reach
+        # this point with the SELECT returning None. The UNIQUE index on
+        # workspace_id then rejects the loser — recover by re-reading the row
+        # the winner just inserted.
         kit = BrandKit(workspace_id=workspace_id)
-        return await self.create(kit)
+        try:
+            return await self.create(kit)
+        except IntegrityError:
+            await self.db.rollback()
+            again = await self.get_for_workspace(workspace_id)
+            if again is None:
+                raise
+            return again

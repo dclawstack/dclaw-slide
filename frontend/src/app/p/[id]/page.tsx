@@ -30,6 +30,8 @@ import {
   type Slide,
   type Theme,
 } from "@/lib/api";
+import { useToast } from "@/components/providers";
+import { GripVertical } from "lucide-react";
 
 function newUserId(): string {
   if (typeof window === "undefined") return "anon";
@@ -66,13 +68,15 @@ export default function PresentationDetail() {
   const searchParams = useSearchParams();
   const id = params?.id;
   const refsUsed = Number(searchParams?.get("refs") ?? 0);
+  const toast = useToast();
 
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
   const [brandKit, setBrandKit] = useState<BrandKit | null>(null);
   const [outline, setOutline] = useState(DEFAULT_OUTLINE);
-  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [notesFor, setNotesFor] = useState<string | null>(null);
   const [notesPanel, setNotesPanel] = useState<{
     slideId: string;
@@ -113,7 +117,7 @@ export default function PresentationDetail() {
       setAnalytics(summary);
       setShareLink(link);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load presentation");
+      toast.push(e instanceof ApiError ? e.message : "Failed to load presentation", "error");
     }
   }, [id]);
 
@@ -142,12 +146,11 @@ export default function PresentationDetail() {
   async function handleAutoLayout() {
     if (!id) return;
     setBusy(true);
-    setError(null);
     try {
       const updated = await api.autoLayout(id);
       setPresentation(updated);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Auto-layout failed");
+      toast.push(e instanceof ApiError ? e.message : "Auto-layout failed", "error");
     } finally {
       setBusy(false);
     }
@@ -167,7 +170,7 @@ export default function PresentationDetail() {
       });
       setShareLink(link);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Share failed");
+      toast.push(e instanceof ApiError ? e.message : "Share failed", "error");
     }
   }
 
@@ -177,13 +180,12 @@ export default function PresentationDetail() {
       await api.revokeShareLink(id);
       setShareLink(null);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Revoke failed");
+      toast.push(e instanceof ApiError ? e.message : "Revoke failed", "error");
     }
   }
 
   async function generateNotes(slide: Slide) {
     setNotesFor(slide.id);
-    setError(null);
     try {
       const result = await api.generateSpeakerNotes(slide.id, true);
       setNotesPanel({
@@ -203,7 +205,7 @@ export default function PresentationDetail() {
           : prev,
       );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Notes generation failed");
+      toast.push(e instanceof ApiError ? e.message : "Notes generation failed", "error");
     } finally {
       setNotesFor(null);
     }
@@ -212,12 +214,11 @@ export default function PresentationDetail() {
   async function handleApplyOutline() {
     if (!id) return;
     setBusy(true);
-    setError(null);
     try {
       const updated = await api.applyOutline(id, outline, true);
       setPresentation(updated);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Outline failed");
+      toast.push(e instanceof ApiError ? e.message : "Outline failed", "error");
     } finally {
       setBusy(false);
     }
@@ -231,7 +232,7 @@ export default function PresentationDetail() {
       const updated = await api.updatePresentation(id, { title: trimmed });
       setPresentation(updated);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Rename failed");
+      toast.push(e instanceof ApiError ? e.message : "Rename failed", "error");
     }
   }
 
@@ -241,7 +242,7 @@ export default function PresentationDetail() {
       const updated = await api.updatePresentation(id, { theme_id: nextThemeId });
       setPresentation(updated);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Theme change failed");
+      toast.push(e instanceof ApiError ? e.message : "Theme change failed", "error");
     }
   }
 
@@ -258,7 +259,40 @@ export default function PresentationDetail() {
           : prev,
       );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Slide update failed");
+      toast.push(e instanceof ApiError ? e.message : "Slide update failed", "error");
+    }
+  }
+
+  async function reorderTo(slideId: string, beforeId: string | null) {
+    if (!id || !presentation) return;
+    const ids = presentation.slides.map((s) => s.id);
+    const from = ids.indexOf(slideId);
+    if (from === -1 || slideId === beforeId) return;
+    ids.splice(from, 1);
+    const insertAt = beforeId === null ? ids.length : ids.indexOf(beforeId);
+    ids.splice(insertAt, 0, slideId);
+    // Optimistic update so the UI doesn't flicker mid-drag.
+    setPresentation((prev) =>
+      prev
+        ? {
+            ...prev,
+            slides: ids
+              .map((sid, idx) => {
+                const original = prev.slides.find((s) => s.id === sid);
+                return original ? { ...original, position: idx } : null;
+              })
+              .filter((s): s is Slide => s !== null),
+          }
+        : prev,
+    );
+    try {
+      const updated = await api.reorderSlides(id, ids);
+      setPresentation((prev) =>
+        prev ? { ...prev, slides: updated.sort((a, b) => a.position - b.position) } : prev,
+      );
+    } catch (e) {
+      toast.push(e instanceof ApiError ? e.message : "Reorder failed", "error");
+      await load();
     }
   }
 
@@ -275,7 +309,7 @@ export default function PresentationDetail() {
         prev ? { ...prev, slides: updated.sort((a, b) => a.position - b.position) } : prev,
       );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Reorder failed");
+      toast.push(e instanceof ApiError ? e.message : "Reorder failed", "error");
     }
   }
 
@@ -287,7 +321,7 @@ export default function PresentationDetail() {
         prev ? { ...prev, slides: prev.slides.filter((s) => s.id !== slide.id) } : prev,
       );
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Delete failed");
+      toast.push(e instanceof ApiError ? e.message : "Delete failed", "error");
     }
   }
 
@@ -298,14 +332,14 @@ export default function PresentationDetail() {
       await api.deletePresentation(id);
       router.push("/dashboard");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Delete failed");
+      toast.push(e instanceof ApiError ? e.message : "Delete failed", "error");
     }
   }
 
   if (!presentation) {
     return (
       <main className="min-h-screen bg-slate-50 p-12 text-center text-slate-500">
-        {error ?? "Loading presentation…"}
+        Loading presentation…
       </main>
     );
   }
@@ -419,10 +453,6 @@ export default function PresentationDetail() {
           </label>
         </div>
 
-        {error && (
-          <div className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
-        )}
-
         {analytics && analytics.total_sessions > 0 && (
           <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
@@ -476,11 +506,44 @@ export default function PresentationDetail() {
                 {presentation.slides.map((slide, idx) => (
                   <li
                     key={slide.id}
-                    className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+                    draggable
+                    onDragStart={(e) => {
+                      setDragId(slide.id);
+                      e.dataTransfer.effectAllowed = "move";
+                      e.dataTransfer.setData("text/plain", slide.id);
+                    }}
+                    onDragEnd={() => {
+                      setDragId(null);
+                      setDragOverId(null);
+                    }}
+                    onDragOver={(e) => {
+                      if (!dragId || dragId === slide.id) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                      setDragOverId(slide.id);
+                    }}
+                    onDragLeave={() => {
+                      if (dragOverId === slide.id) setDragOverId(null);
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      if (dragId && dragId !== slide.id) {
+                        reorderTo(dragId, slide.id);
+                      }
+                      setDragId(null);
+                      setDragOverId(null);
+                    }}
+                    className={`rounded-2xl border bg-white p-5 shadow-sm transition ${
+                      dragOverId === slide.id ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-200"
+                    } ${dragId === slide.id ? "opacity-50" : ""}`}
                     style={{ borderLeft: `4px solid ${accent}` }}
                   >
                     <div className="mb-2 flex items-center justify-between">
-                      <span className="text-xs uppercase tracking-wide text-slate-400">
+                      <span className="flex items-center gap-1 text-xs uppercase tracking-wide text-slate-400">
+                        <GripVertical
+                          className="h-4 w-4 cursor-grab text-slate-300"
+                          aria-label="Drag to reorder"
+                        />
                         Slide {idx + 1} · {slide.layout}
                       </span>
                       <div className="flex items-center gap-1">

@@ -5,13 +5,14 @@ import Link from "next/link";
 import { Palette, Presentation as PresentationIcon, Sparkles, Wand2 } from "lucide-react";
 
 import { api, ApiError, type PresentationSummary, type Theme } from "@/lib/api";
+import { useToast } from "@/components/providers";
 
 type DeckType = "pitch" | "report" | "training";
 
 export default function Dashboard() {
+  const toast = useToast();
   const [presentations, setPresentations] = useState<PresentationSummary[] | null>(null);
   const [themes, setThemes] = useState<Theme[]>([]);
-  const [error, setError] = useState<string | null>(null);
 
   // Create-empty form
   const [title, setTitle] = useState("");
@@ -31,7 +32,7 @@ export default function Dashboard() {
       setThemes(ts);
       if (ts.length && !ts.some((t) => t.id === themeId)) setThemeId(ts[0].id);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load dashboard");
+      toast.push(e instanceof ApiError ? e.message : "Failed to load dashboard", "error");
     }
   }
 
@@ -43,12 +44,11 @@ export default function Dashboard() {
     e.preventDefault();
     if (!title.trim()) return;
     setCreating(true);
-    setError(null);
     try {
       const deck = await api.createPresentation({ title: title.trim(), theme_id: themeId });
       window.location.href = `/p/${deck.id}`;
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Create failed");
+      toast.push(e instanceof ApiError ? e.message : "Create failed", "error");
       setCreating(false);
     }
   }
@@ -57,7 +57,6 @@ export default function Dashboard() {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
     setAiGenerating(true);
-    setError(null);
     try {
       const result = await api.generateDeck({
         prompt: aiPrompt.trim(),
@@ -72,7 +71,7 @@ export default function Dashboard() {
           : "?from=ai";
       window.location.href = `/p/${result.presentation.id}${refsHint}`;
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Generation failed");
+      toast.push(e instanceof ApiError ? e.message : "Generation failed", "error");
       setAiGenerating(false);
     }
   }
@@ -186,9 +185,6 @@ export default function Dashboard() {
                 {creating ? "Creating…" : "Create empty deck"}
               </button>
             </form>
-            {error && (
-              <p className="mt-4 rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>
-            )}
           </section>
 
           <section>

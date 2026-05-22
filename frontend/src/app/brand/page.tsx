@@ -5,14 +5,15 @@ import Link from "next/link";
 import { ArrowLeft, BookOpen, Palette, Trash2 } from "lucide-react";
 
 import { api, ApiError, type BrandKit, type BrandReferenceSummary } from "@/lib/api";
+import { useBrand, useToast } from "@/components/providers";
 
 const HEX = /^#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})$/;
 
 export default function BrandKitPage() {
+  const toast = useToast();
+  const brandCtx = useBrand();
   const [kit, setKit] = useState<BrandKit | null>(null);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const [references, setReferences] = useState<BrandReferenceSummary[]>([]);
   const [refTitle, setRefTitle] = useState("");
@@ -25,9 +26,9 @@ export default function BrandKitPage() {
       setKit(k);
       setReferences(refs);
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Failed to load brand kit");
+      toast.push(e instanceof ApiError ? e.message : "Failed to load brand kit", "error");
     }
-  }, []);
+  }, [toast]);
 
   useEffect(() => {
     load();
@@ -37,7 +38,6 @@ export default function BrandKitPage() {
     e.preventDefault();
     if (!refTitle.trim() || !refBody.trim()) return;
     setAddingRef(true);
-    setError(null);
     try {
       await api.createBrandReference({
         title: refTitle.trim(),
@@ -47,8 +47,9 @@ export default function BrandKitPage() {
       setRefTitle("");
       setRefBody("");
       setReferences(await api.listBrandReferences());
+      toast.push("Reference added", "success");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Add failed");
+      toast.push(e instanceof ApiError ? e.message : "Add failed", "error");
     } finally {
       setAddingRef(false);
     }
@@ -58,34 +59,33 @@ export default function BrandKitPage() {
     try {
       await api.deleteBrandReference(id);
       setReferences((prev) => prev.filter((r) => r.id !== id));
+      toast.push("Reference removed", "info");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Delete failed");
+      toast.push(e instanceof ApiError ? e.message : "Delete failed", "error");
     }
   }
 
   if (!kit) {
     return (
       <main className="min-h-screen bg-slate-50 p-12 text-center text-slate-500">
-        {error ?? "Loading brand kit…"}
+        Loading brand kit…
       </main>
     );
   }
 
   function update<K extends keyof BrandKit>(field: K, value: BrandKit[K]) {
     setKit((prev) => (prev ? { ...prev, [field]: value } : prev));
-    setSuccess(false);
   }
 
   async function handleSave() {
     if (!kit) return;
     for (const field of ["primary_color", "accent_color", "neutral_color"] as const) {
       if (!HEX.test(kit[field])) {
-        setError(`${field.replace("_", " ")} must be a valid hex (e.g. #EC4899)`);
+        toast.push(`${field.replace("_", " ")} must be a valid hex (e.g. #EC4899)`, "error");
         return;
       }
     }
     setSaving(true);
-    setError(null);
     try {
       const updated = await api.updateBrandKit({
         name: kit.name,
@@ -99,9 +99,10 @@ export default function BrandKitPage() {
         voice_donts: kit.voice_donts,
       });
       setKit(updated);
-      setSuccess(true);
+      await brandCtx.refresh(); // cascades new CSS vars across the app
+      toast.push("Brand kit saved", "success");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Save failed");
+      toast.push(e instanceof ApiError ? e.message : "Save failed", "error");
     } finally {
       setSaving(false);
     }
@@ -129,15 +130,6 @@ export default function BrandKitPage() {
             in this workspace.
           </p>
         </div>
-
-        {error && (
-          <div className="rounded-md bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</div>
-        )}
-        {success && (
-          <div className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
-            Saved.
-          </div>
-        )}
 
         <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
