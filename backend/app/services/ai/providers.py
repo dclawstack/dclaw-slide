@@ -40,16 +40,34 @@ class SpeakerNotes:
 
 
 SYSTEM_DECK_PROMPT = (
-    "Write slides in plain everyday English a 12-year-old would understand. "
-    "Each bullet is one short sentence, max 12 words. Active voice. "
-    "No buzzwords: avoid leverage, synergy, scalable, seamless, ecosystem, "
-    "MLOps, ROI, cutting-edge, empower, unlock. Use simple words instead. "
-    "No placeholder text like [X] or [Your Tool Name] — use the user's topic. "
-    "Return EXACTLY the number of slides the user asks for, no more, no fewer. "
-    "Return strict JSON only, no prose: "
-    '{"slides": [{"title": str, "layout": str, "body": str}, ...]}. '
-    "Allowed layouts: title-only, title-bullets, section-header, quote, two-column. "
-    "Body is markdown bullets, one per line, each prefixed with '- '."
+    "You write deeply useful presentation slides in plain everyday English. "
+    "\n\n"
+    "CONTENT DEPTH — each slide must be valuable on its own:\n"
+    "- 5 to 7 bullets per slide, never fewer than 4.\n"
+    "- Each bullet is one full sentence of 15-25 words. Not a phrase, not a label.\n"
+    "- Every bullet teaches something specific: a real-world example, a number, "
+    "a cause-and-effect explanation, a concrete action, or a comparison.\n"
+    "- Mix bullet types within a slide: a fact, an example, a why-this-matters, "
+    "a what-to-do-next.\n"
+    "- If you don't know a real number, write a believable estimate the audience "
+    "can verify later — never say [X] or [insert number].\n\n"
+    "LANGUAGE — plain English a 12-year-old understands:\n"
+    "- Active voice. Short clear sentences. Use 'we', 'you', 'they'.\n"
+    "- Banned words: leverage, synergy, scalable, seamless, ecosystem, paradigm, "
+    "holistic, optimize, streamline, empower, unlock, revolutionize, cutting-edge, "
+    "next-generation, state-of-the-art, MLOps, NLP, KPI, ROI, robust. "
+    "Say what you mean in plain words instead.\n"
+    "- No placeholder text like [Your Tool Name], [X], or [insert]. Use the "
+    "user's topic directly.\n\n"
+    "STRUCTURE — each slide answers ONE clear question:\n"
+    "- Title states the question or the takeaway in 4-9 words.\n"
+    "- Bullets give a complete, useful answer to that question.\n"
+    "- A reader who sees only this slide should walk away knowing something real.\n\n"
+    "OUTPUT — strict JSON only, no prose outside it:\n"
+    '{"slides": [{"title": str, "layout": str, "body": str}, ...]}\n'
+    "- Return EXACTLY the number of slides the user requests.\n"
+    "- Allowed layouts: title-only, title-bullets, section-header, quote, two-column.\n"
+    "- Body is markdown bullets, one per line, each prefixed with '- '."
 )
 
 SYSTEM_NOTES_PROMPT = (
@@ -429,7 +447,10 @@ class OllamaProvider(LLMProvider):
     ) -> list[GeneratedSlide]:
         user = (
             f"Generate EXACTLY {target_slides} slides for a {deck_type}.\n"
-            f"Topic: {prompt}\n"
+            f"Topic: {prompt}\n\n"
+            "For each slide: pick a clear question or takeaway. Write 5-7 full "
+            "sentences as bullets. Each sentence teaches one real thing — a fact, "
+            "an example, a number, a cause, or an action. Plain English only.\n\n"
             f"Return a JSON array of length {target_slides} under the 'slides' key."
         )
         raw = await self._chat(SYSTEM_DECK_PROMPT, user)
@@ -489,7 +510,10 @@ class OpenRouterProvider(LLMProvider):
     ) -> list[GeneratedSlide]:
         user = (
             f"Generate EXACTLY {target_slides} slides for a {deck_type}.\n"
-            f"Topic: {prompt}\n"
+            f"Topic: {prompt}\n\n"
+            "For each slide: pick a clear question or takeaway. Write 5-7 full "
+            "sentences as bullets. Each sentence teaches one real thing — a fact, "
+            "an example, a number, a cause, or an action. Plain English only.\n\n"
             f"Return a JSON array of length {target_slides} under the 'slides' key."
         )
         raw = await self._chat(SYSTEM_DECK_PROMPT, user)
