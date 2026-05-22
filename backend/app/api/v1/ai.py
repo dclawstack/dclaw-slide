@@ -80,7 +80,19 @@ async def _build_enriched_prompt(
     hits = rank(payload.prompt, list(refs_result.scalars().all()))[:3]
     if not hits:
         return payload.prompt, 0
-    return f"{format_for_prompt(hits)}\n\nUSER REQUEST:\n{payload.prompt}", len(hits)
+    # Order matters: examples first (sets the voice), then a forceful pivot
+    # to the user's actual topic. Without the "DO NOT write about" guard,
+    # small models drift onto the reference content. Final prompt repeats the
+    # topic so it's the LAST thing the model reads before generating.
+    enriched = (
+        f"{format_for_prompt(hits)}\n\n"
+        f"=========\n"
+        f"WRITE A DECK ABOUT THIS TOPIC AND THIS TOPIC ONLY:\n\n"
+        f"    {payload.prompt}\n\n"
+        f"Do NOT write about the style examples above. They are only here to "
+        f"show you our tone of voice. Every slide must be about: {payload.prompt}"
+    )
+    return enriched, len(hits)
 
 
 async def _persist_generated_slides(

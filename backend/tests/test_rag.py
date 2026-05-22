@@ -35,8 +35,40 @@ def test_format_for_prompt_truncates_long_bodies():
     refs = [_ref("Long", "x" * 1000)]
     hits = rank("Long", refs)
     rendered = format_for_prompt(hits)
-    assert "BRAND REFERENCES" in rendered
-    assert "…" in rendered  # got truncated
+    # Body got truncated.
+    assert "…" in rendered
+    # New framing emphasizes style-only.
+    assert "STYLE EXAMPLES" in rendered
+
+
+def test_rank_excludes_weak_topical_matches():
+    """A reference about 'sales decks' shouldn't fire for a 'CRM tool' prompt
+    just because both mention 'sales' once. Below the threshold, the retriever
+    returns nothing — and the LLM stays on the user's topic."""
+    refs = [
+        _ref(
+            "Sales deck playbook",
+            "Our sales reps build decks every week. Decks should be clean. "
+            "Avoid jargon. Show numbers. Active voice.",
+        ),
+    ]
+    # Single shared word ("sales") shouldn't trigger retrieval.
+    hits = rank("a CRM tool for small business teams", refs)
+    assert len(hits) == 0
+
+
+def test_rank_keeps_strong_topical_matches():
+    """Conversely, a real topical match (multiple shared content words) should
+    still come through after thresholding."""
+    refs = [
+        _ref(
+            "Sales deck playbook",
+            "Our sales reps build decks every week. Decks should be clean.",
+        ),
+    ]
+    # Many shared content words → score well above the threshold.
+    hits = rank("how to build clean sales decks for reps every week", refs)
+    assert len(hits) == 1
 
 
 @pytest.mark.asyncio

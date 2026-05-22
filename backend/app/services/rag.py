@@ -74,18 +74,38 @@ def rank(query: str, references: list[BrandReference]) -> list[RetrievalHit]:
             q_vec[t] * d_vec.get(t, 0) * idf.get(t, 0.0) ** 2 for t in q_vec
         )
         score = dot / (q_norm * d_norm)
-        if score > 0:
+        # Threshold: only include references with meaningful overlap. Weak matches
+        # (e.g. a deck about "sales decks" retrieved for a prompt about "CRM tools"
+        # because both share the word "sales") were causing the LLM to drift onto
+        # the reference's topic instead of the user's.
+        if score >= MIN_RELEVANCE_SCORE:
             hits.append(RetrievalHit(reference=ref, score=score))
 
     hits.sort(key=lambda h: h.score, reverse=True)
     return hits
 
 
+# TF-IDF cosine scores in a normalized vector space — empirically, anything
+# below ~0.15 is matching on a single shared common word and isn't actually
+# topically relevant. Above ~0.25 is a strong match.
+MIN_RELEVANCE_SCORE = 0.15
+
+
 def format_for_prompt(hits: list[RetrievalHit], max_chars: int = 1200) -> str:
-    """Render top hits as a compact context block for an LLM prompt."""
+    """Render top hits as a compact STYLE-ONLY context block for an LLM prompt.
+
+    The framing is deliberately strong because small models otherwise treat the
+    references as topic content to write about. We want them to absorb tone +
+    vocabulary, then write slides about the user's actual prompt — not about
+    whatever the references happened to discuss.
+    """
     if not hits:
         return ""
-    chunks: list[str] = ["BRAND REFERENCES (use this voice and vocabulary):"]
+    chunks: list[str] = [
+        "STYLE EXAMPLES — these show HOW we write (tone, vocabulary, sentence "
+        "length, level of detail). They are NOT the topic. Ignore what they "
+        "talk about; only copy the way they sound.",
+    ]
     used = 0
     for hit in hits:
         snippet = hit.reference.body.strip()
