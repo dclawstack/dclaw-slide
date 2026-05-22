@@ -2,13 +2,13 @@ from datetime import timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.utils import utc_now
 from app.models.share_link import ShareLink
 from app.repositories.presentation_repo import PresentationRepository
+from app.repositories.share_link_repo import ShareLinkRepository
 from app.schemas.presentation import PresentationRead
 from app.schemas.share_link import (
     PublicShareResponse,
@@ -43,10 +43,7 @@ owner_router = APIRouter()
 async def get_share_link(
     presentation_id: UUID, db: AsyncSession = Depends(get_db)
 ) -> ShareLinkRead | None:
-    result = await db.execute(
-        select(ShareLink).where(ShareLink.presentation_id == presentation_id)
-    )
-    link = result.scalar_one_or_none()
+    link = await ShareLinkRepository(db).get_for_presentation(presentation_id)
     return _to_read(link) if link else None
 
 
@@ -60,9 +57,7 @@ async def create_or_rotate_share_link(
     payload: ShareLinkCreate,
     db: AsyncSession = Depends(get_db),
 ) -> ShareLinkRead:
-    repo = PresentationRepository(db)
-    presentation = await repo.get_with_slides(presentation_id)
-    if presentation is None:
+    if await PresentationRepository(db).get_with_slides(presentation_id) is None:
         raise HTTPException(status_code=404, detail="presentation not found")
 
     expires = (
@@ -71,11 +66,8 @@ async def create_or_rotate_share_link(
         else None
     )
 
-    existing = (
-        await db.execute(
-            select(ShareLink).where(ShareLink.presentation_id == presentation_id)
-        )
-    ).scalar_one_or_none()
+    repo = ShareLinkRepository(db)
+    existing = await repo.get_for_presentation(presentation_id)
 
     if existing is None:
         link = ShareLink(
@@ -104,22 +96,18 @@ async def create_or_rotate_share_link(
 async def revoke_share_link(
     presentation_id: UUID, db: AsyncSession = Depends(get_db)
 ) -> None:
-    result = await db.execute(
-        select(ShareLink).where(ShareLink.presentation_id == presentation_id)
-    )
-    link = result.scalar_one_or_none()
+    repo = ShareLinkRepository(db)
+    link = await repo.get_for_presentation(presentation_id)
     if link is None:
         raise HTTPException(status_code=404, detail="no share link")
-    await db.delete(link)
-    await db.commit()
+    await repo.delete(link)
 
 
 # ── Public, token-keyed endpoint ──────────────────────────────────────────────
 
 
 async def _load_active_link(token: str, db: AsyncSession) -> ShareLink:
-    result = await db.execute(select(ShareLink).where(ShareLink.token == token))
-    link = result.scalar_one_or_none()
+    link = await ShareLinkRepository(db).get_by_token(token)
     if link is None:
         raise HTTPException(status_code=404, detail="link not found")
     if link.expires_at is not None and link.expires_at < utc_now():

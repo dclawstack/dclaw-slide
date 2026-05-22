@@ -42,15 +42,16 @@ Rule: **no C1 ticket starts until every C0 ticket in its dependency chain is `me
 
 ## 2. Pre-Flight Checklist (must stay green throughout)
 
-- [ ] `frontend/package-lock.json` committed after any `npm install`
-- [ ] `frontend/next-env.d.ts` exists and is committed
-- [ ] `docker-compose.yml` healthchecks correct, container ports match `EXPOSE`/`ENV PORT`
-- [ ] `frontend/Dockerfile` declares `ARG NEXT_PUBLIC_API_URL` before `RUN npm run build`
-- [ ] `backend/tests/conftest.py` keeps `localhost:5432` for the CI Postgres service
-- [ ] `pytest-asyncio==0.24.0` pinned
-- [ ] Local dev SQLite (`backend/dclaw_slide.db`) is gitignored
-- [ ] All models inherit `Base` from `app.models.base`
-- [ ] All routers behind `/api/v1`; health stays at `/health/`
+- [x] `frontend/package-lock.json` committed after any `npm install`
+- [x] `frontend/next-env.d.ts` exists and is committed
+- [x] `docker-compose.yml` healthchecks correct, container ports match `EXPOSE`/`ENV PORT` (5432 / 8021 / 3021)
+- [x] `frontend/Dockerfile` declares `ARG NEXT_PUBLIC_API_URL` before `RUN npm run build`
+- [x] `backend/tests/conftest.py` keeps `localhost:5432` for the CI Postgres service
+- [x] `pytest-asyncio==0.24.0` pinned
+- [x] Local dev SQLite (`backend/dclaw_slide.db`) is gitignored
+- [x] All models inherit `Base` from `app.models.base`
+- [x] All routers behind `/api/v1`; health stays at `/health/`
+- [x] Repository pattern enforced — no `select(...)` calls in routers (added `ShareLinkRepository` in the audit pass)
 
 ---
 
@@ -156,7 +157,7 @@ Strict order. Each row blocks the next.
   - C1.3: `image-right` + `chart` layouts → unlock once C2.3 (image gen) and C2.4 (data-bound slides) provide the missing inputs.
 - **C2:** Not started — ready when funding/pilot requires.
 
-Tests: **53 / 53 pytest green** on SQLite + Postgres; **`npm run build` clean** across 7 routes.
+Tests: **54 / 54 pytest green** on SQLite + Postgres (added a race-recovery test for `BrandKitRepository.get_or_create`); **`tsc --noEmit` clean** across 7 routes.
 
 ---
 
