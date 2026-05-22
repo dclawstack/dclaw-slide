@@ -11,9 +11,11 @@ Override with `AI_PROVIDER=ollama|openrouter|deterministic`.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 import httpx
@@ -67,6 +69,20 @@ class LLMProvider(ABC):
         self, slide_title: str, slide_body: str, deck_context: str
     ) -> SpeakerNotes: ...
 
+    async def stream_generate_deck(
+        self, prompt: str, target_slides: int, deck_type: str
+    ) -> AsyncIterator[GeneratedSlide]:
+        """Default: run the batch generator then yield slides one at a time.
+
+        Subclasses with a real streaming API (Ollama, OpenRouter) should
+        override this. The base implementation keeps the SSE endpoint working
+        for any provider — at minimum the client gets to see slides appear
+        progressively instead of all-at-once at the end.
+        """
+        slides = await self.generate_deck(prompt, target_slides, deck_type)
+        for slide in slides:
+            yield slide
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Deterministic — always works, used in tests and as the safety net.
@@ -116,6 +132,19 @@ def _section_template(deck_type: str) -> list[tuple[str, str, str]]:
 
 class DeterministicProvider(LLMProvider):
     name = "deterministic"
+
+    # Used to simulate token-by-token generation in dev when no real LLM is
+    # configured. The SSE demo flow is the main consumer; tests can pass 0.
+    stream_delay_ms: int = 220
+
+    async def stream_generate_deck(
+        self, prompt: str, target_slides: int, deck_type: str
+    ) -> AsyncIterator[GeneratedSlide]:
+        slides = await self.generate_deck(prompt, target_slides, deck_type)
+        for slide in slides:
+            if self.stream_delay_ms > 0:
+                await asyncio.sleep(self.stream_delay_ms / 1000)
+            yield slide
 
     async def generate_deck(
         self, prompt: str, target_slides: int, deck_type: str

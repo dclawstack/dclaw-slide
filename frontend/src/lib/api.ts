@@ -8,6 +8,70 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * SSE variant of generate-deck. Slides arrive one-at-a-time and are already
+ * persisted on the server. Returns the underlying AbortController so the UI
+ * can cancel mid-stream.
+ */
+function streamGenerateDeck(
+  input: GenerateDeckInput,
+  handlers: StreamHandlers,
+): AbortController {
+  const controller = new AbortController();
+  (async () => {
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/ai/generate-deck-stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
+        handlers.onError?.(`HTTP ${response.status}`);
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        // SSE frames are separated by a blank line.
+        while ((nl = buffer.indexOf("\n\n")) !== -1) {
+          const frame = buffer.slice(0, nl);
+          buffer = buffer.slice(nl + 2);
+          const evMatch = frame.match(/event:\s*(\S+)/);
+          // `data:` payload runs to the end of the frame; SSE allows multi-line.
+          const dataLines = frame
+            .split("\n")
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => l.slice(5).trimStart());
+          if (!evMatch || dataLines.length === 0) continue;
+          const event = evMatch[1];
+          let data: unknown;
+          try {
+            data = JSON.parse(dataLines.join("\n"));
+          } catch {
+            continue;
+          }
+          if (event === "ready") handlers.onReady?.(data as StreamReadyEvent);
+          else if (event === "slide") handlers.onSlide?.(data as StreamedSlide);
+          else if (event === "done") handlers.onDone?.(data as StreamDoneEvent);
+          else if (event === "error")
+            handlers.onError?.((data as { message?: string }).message ?? "stream error");
+        }
+      }
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+      handlers.onError?.((e as Error).message);
+    }
+  })();
+  return controller;
+}
+
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const response = await fetch(url, {
@@ -136,6 +200,44 @@ export type AnalyticsEventType =
   | "dropoff"
   | "finish";
 
+export interface GenerateDeckInput {
+  prompt: string;
+  target_slides?: number;
+  deck_type?: "pitch" | "report" | "training";
+  theme_id?: string;
+  title?: string;
+  presentation_id?: string;
+  replace_existing?: boolean;
+  use_brand_references?: boolean;
+  workspace_id?: string;
+}
+
+export interface StreamedSlide {
+  id: string;
+  position: number;
+  title: string;
+  body: string;
+  layout: string;
+}
+
+export interface StreamReadyEvent {
+  presentation_id: string;
+  provider: string;
+  references_used: number;
+}
+
+export interface StreamDoneEvent {
+  presentation_id: string;
+  slides: number;
+}
+
+export interface StreamHandlers {
+  onReady?: (data: StreamReadyEvent) => void;
+  onSlide?: (slide: StreamedSlide) => void;
+  onDone?: (data: StreamDoneEvent) => void;
+  onError?: (message: string) => void;
+}
+
 export interface ShareLink {
   id: string;
   presentation_id: string;
@@ -223,21 +325,12 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(patch),
     }),
-  generateDeck: (input: {
-    prompt: string;
-    target_slides?: number;
-    deck_type?: "pitch" | "report" | "training";
-    theme_id?: string;
-    title?: string;
-    presentation_id?: string;
-    replace_existing?: boolean;
-    use_brand_references?: boolean;
-    workspace_id?: string;
-  }) =>
+  generateDeck: (input: GenerateDeckInput) =>
     request<GenerateDeckResponse>("/api/v1/ai/generate-deck", {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  generateDeckStream: streamGenerateDeck,
   generateSpeakerNotes: (slideId: string, save = true) =>
     request<SpeakerNotesResponse>(`/api/v1/ai/speaker-notes/${slideId}`, {
       method: "POST",

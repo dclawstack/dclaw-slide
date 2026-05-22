@@ -6,6 +6,8 @@ import { Palette, Presentation as PresentationIcon, Sparkles, Wand2 } from "luci
 
 import { api, ApiError, type PresentationSummary, type Theme } from "@/lib/api";
 import { useToast } from "@/components/providers";
+import { DeckRowSkeleton } from "@/components/skeleton";
+import { StreamingOverlay } from "@/components/streaming-overlay";
 
 type DeckType = "pitch" | "report" | "training";
 
@@ -23,7 +25,13 @@ export default function Dashboard() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiSlides, setAiSlides] = useState(8);
   const [aiDeckType, setAiDeckType] = useState<DeckType>("pitch");
-  const [aiGenerating, setAiGenerating] = useState(false);
+  const [streamInput, setStreamInput] = useState<{
+    prompt: string;
+    target_slides: number;
+    deck_type: DeckType;
+    theme_id: string;
+    use_brand_references: boolean;
+  } | null>(null);
 
   async function refresh() {
     try {
@@ -53,31 +61,31 @@ export default function Dashboard() {
     }
   }
 
-  async function handleGenerate(e: React.FormEvent) {
+  function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
-    setAiGenerating(true);
-    try {
-      const result = await api.generateDeck({
-        prompt: aiPrompt.trim(),
-        target_slides: aiSlides,
-        deck_type: aiDeckType,
-        theme_id: themeId,
-        use_brand_references: true,
-      });
-      const refsHint =
-        result.references_used > 0
-          ? `?from=ai&refs=${result.references_used}`
-          : "?from=ai";
-      window.location.href = `/p/${result.presentation.id}${refsHint}`;
-    } catch (e) {
-      toast.push(e instanceof ApiError ? e.message : "Generation failed", "error");
-      setAiGenerating(false);
-    }
+    setStreamInput({
+      prompt: aiPrompt.trim(),
+      target_slides: aiSlides,
+      deck_type: aiDeckType,
+      theme_id: themeId,
+      use_brand_references: true,
+    });
   }
 
   return (
     <main className="min-h-screen bg-slate-50">
+      {streamInput && (
+        <StreamingOverlay
+          input={streamInput}
+          target={streamInput.target_slides}
+          themeAccent={themes.find((t) => t.id === streamInput.theme_id)?.accent}
+          onCancel={() => setStreamInput(null)}
+          onDone={(pid) => {
+            window.location.href = `/p/${pid}?from=ai`;
+          }}
+        />
+      )}
       <header className="border-b border-slate-200 bg-white">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-4">
           <Link href="/" className="flex items-center gap-2 text-slate-900">
@@ -135,11 +143,11 @@ export default function Dashboard() {
             />
             <button
               type="submit"
-              disabled={aiGenerating || !aiPrompt.trim()}
+              disabled={streamInput !== null || !aiPrompt.trim()}
               className="col-span-full inline-flex items-center justify-center gap-2 rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-600 disabled:opacity-50 sm:col-span-1 sm:col-start-3"
             >
               <Sparkles className="h-4 w-4" />
-              {aiGenerating ? "Generating…" : "Generate deck"}
+              {streamInput ? "Generating…" : "Generate deck"}
             </button>
           </form>
         </section>
@@ -195,9 +203,13 @@ export default function Dashboard() {
               </span>
             </div>
             {presentations === null ? (
-              <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
-                Loading presentations…
-              </div>
+              <ul className="space-y-3">
+                {[0, 1, 2].map((i) => (
+                  <li key={i}>
+                    <DeckRowSkeleton />
+                  </li>
+                ))}
+              </ul>
             ) : presentations.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center text-sm text-slate-500">
                 No presentations yet. Try the AI Copilot above.

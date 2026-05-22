@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from app.services.ai.providers import DeterministicProvider
@@ -101,6 +103,47 @@ async def test_speaker_notes_endpoint_saves(client):
     assert body["notes"]
     assert len(body["likely_questions"]) >= 3
     assert body["slide"]["speaker_notes"] == body["notes"]
+
+
+@pytest.mark.asyncio
+async def test_stream_generate_deck_emits_ready_slide_done(client, monkeypatch):
+    """The SSE endpoint should emit:
+      - one `ready` event with provider + presentation_id
+      - one `slide` event per generated slide (persisted to the DB as it goes)
+      - one final `done` event with the total slide count
+    """
+    # Suppress the artificial demo delay so the test runs instantly.
+    from app.services.ai.providers import DeterministicProvider
+    monkeypatch.setattr(DeterministicProvider, "stream_delay_ms", 0)
+
+    async with client.stream(
+        "POST",
+        "/api/v1/ai/generate-deck-stream",
+        json={"prompt": "stream me", "target_slides": 3, "deck_type": "pitch"},
+    ) as response:
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events: list[tuple[str, dict]] = []
+        current_event: str | None = None
+        async for line in response.aiter_lines():
+            if line.startswith("event:"):
+                current_event = line.split(":", 1)[1].strip()
+            elif line.startswith("data:") and current_event:
+                events.append((current_event, json.loads(line.split(":", 1)[1].strip())))
+                current_event = None
+
+    types = [e[0] for e in events]
+    assert types[0] == "ready"
+    assert types[-1] == "done"
+    slide_events = [d for t, d in events if t == "slide"]
+    assert len(slide_events) == 3
+    assert slide_events[0]["position"] == 0
+    assert slide_events[-1]["position"] == 2
+
+    # Slides should be queryable mid-stream (in our case, fully present at end).
+    pid = events[0][1]["presentation_id"]
+    deck = (await client.get(f"/api/v1/presentations/{pid}")).json()
+    assert len(deck["slides"]) == 3
 
 
 @pytest.mark.asyncio

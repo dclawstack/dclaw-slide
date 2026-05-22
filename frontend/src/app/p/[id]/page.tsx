@@ -33,6 +33,7 @@ import {
 import { useToast } from "@/components/providers";
 import { GripVertical, Plus } from "lucide-react";
 import { SlideCanvas } from "@/components/slide-canvas";
+import { SlideCardSkeleton } from "@/components/skeleton";
 
 function newUserId(): string {
   if (typeof window === "undefined") return "anon";
@@ -358,8 +359,19 @@ export default function PresentationDetail() {
 
   if (!presentation) {
     return (
-      <main className="min-h-screen bg-slate-50 p-12 text-center text-slate-500">
-        Loading presentation…
+      <main className="min-h-screen bg-slate-50">
+        <header className="border-b border-slate-200 bg-white">
+          <div className="mx-auto h-14 max-w-6xl px-6" />
+        </header>
+        <div className="mx-auto max-w-6xl px-6 py-8">
+          <div className="h-9 w-2/3 animate-pulse rounded bg-slate-200" />
+          <div className="mt-3 h-3 w-1/3 animate-pulse rounded bg-slate-100" />
+          <div className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <SlideCardSkeleton key={i} />
+            ))}
+          </div>
+        </div>
       </main>
     );
   }
@@ -649,11 +661,11 @@ function SlideEditDrawer({
   if (!slide) return null;
   const showQuestions = notesPanel?.slideId === slide.id;
   return (
-    <div className="fixed inset-0 z-40 flex" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex animate-fade-in" onClick={onClose}>
       <div className="flex-1 bg-slate-900/30 backdrop-blur-sm" />
       <aside
         onClick={(e) => e.stopPropagation()}
-        className="flex h-screen w-full max-w-xl flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
+        className="flex h-screen w-full max-w-xl animate-slide-in-right flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
       >
         <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
           <div>

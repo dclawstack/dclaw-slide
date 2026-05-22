@@ -1,6 +1,8 @@
+import json
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -136,6 +138,92 @@ async def generate_deck(
         presentation=PresentationRead.model_validate(presentation),
         provider=provider.name,
         references_used=references_used,
+    )
+
+
+def _sse(event: str, data: dict) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/generate-deck-stream")
+async def generate_deck_stream(
+    payload: GenerateDeckRequest, db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """Server-Sent Events variant of generate-deck. Emits one `slide` event per
+    slide as it's generated, followed by a final `done` event. Each `slide`
+    event is persisted to the DB so refreshing /p/[id] mid-stream shows the
+    slides that already arrived.
+    """
+    if get_theme(payload.theme_id) is None:
+        raise HTTPException(status_code=400, detail=f"unknown theme_id: {payload.theme_id}")
+    presentation = await _load_or_create_deck(payload, db)
+    enriched_prompt, references_used = await _build_enriched_prompt(payload, db)
+    provider = await select_provider()
+
+    # Clear existing slides up-front so the client doesn't see stale ones.
+    if payload.replace_existing and presentation.slides:
+        for s in list(presentation.slides):
+            await db.delete(s)
+        await db.commit()
+        await db.refresh(presentation, ["slides"])
+    start_position = (
+        0 if payload.replace_existing
+        else await SlideRepository(db).next_position(presentation.id)
+    )
+
+    async def event_stream():
+        yield _sse(
+            "ready",
+            {
+                "presentation_id": str(presentation.id),
+                "provider": provider.name,
+                "references_used": references_used,
+            },
+        )
+        position = start_position
+        try:
+            async for gen in provider.stream_generate_deck(
+                enriched_prompt, payload.target_slides, payload.deck_type
+            ):
+                layout = pick_layout(gen.title, gen.body, gen.layout)
+                slide = Slide(
+                    presentation_id=presentation.id,
+                    position=position,
+                    title=gen.title,
+                    body=gen.body,
+                    layout=layout,
+                )
+                db.add(slide)
+                await db.commit()
+                await db.refresh(slide)
+                yield _sse(
+                    "slide",
+                    {
+                        "id": str(slide.id),
+                        "position": slide.position,
+                        "title": slide.title,
+                        "body": slide.body,
+                        "layout": slide.layout,
+                    },
+                )
+                position += 1
+        except Exception as exc:
+            yield _sse("error", {"message": f"{provider.name}: {exc}"})
+            return
+        await realtime.notify_invalidate(presentation.id, "ai_generated")
+        yield _sse(
+            "done",
+            {"presentation_id": str(presentation.id), "slides": position - start_position},
+        )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 

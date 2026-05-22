@@ -184,7 +184,7 @@ export default function PublicSharePage() {
       </div>
 
       <div className="flex flex-1 items-center justify-center p-8">
-        <div className="w-full max-w-6xl">
+        <div key={slide.id} className="w-full max-w-6xl animate-fade-scale-in">
           <SlideCanvas
             slide={slide}
             index={index}

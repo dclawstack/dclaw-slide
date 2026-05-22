@@ -49,6 +49,35 @@ const config: Config = {
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
       },
+      keyframes: {
+        "slide-in-right": {
+          "0%": { transform: "translateX(100%)" },
+          "100%": { transform: "translateX(0)" },
+        },
+        "slide-in-bottom": {
+          "0%": { transform: "translateY(12px)", opacity: "0" },
+          "100%": { transform: "translateY(0)", opacity: "1" },
+        },
+        "fade-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "fade-scale-in": {
+          "0%": { opacity: "0", transform: "scale(0.96)" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "skeleton-shimmer": {
+          "0%": { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+      },
+      animation: {
+        "slide-in-right": "slide-in-right 220ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "slide-in-bottom": "slide-in-bottom 280ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "fade-in": "fade-in 200ms ease-out",
+        "fade-scale-in": "fade-scale-in 280ms cubic-bezier(0.4, 0, 0.2, 1)",
+        "skeleton-shimmer": "skeleton-shimmer 1.6s linear infinite",
+      },
     },
   },
   plugins: [require("tailwindcss-animate")],
