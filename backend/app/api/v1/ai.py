@@ -13,6 +13,7 @@ from app.models.presentation import Presentation, Slide
 from app.repositories.presentation_repo import PresentationRepository, SlideRepository
 from app.schemas.presentation import PresentationRead, SlideRead
 from app.services.ai import select_provider
+from app.services.ai.providers import DeterministicProvider, LLMProvider
 from app.services.layout import pick_layout
 from app.services.rag import format_for_prompt, rank
 from app.services.realtime import manager as realtime
@@ -172,17 +173,21 @@ async def generate_deck_stream(
     )
 
     async def event_stream():
+        active: LLMProvider = provider
         yield _sse(
             "ready",
             {
                 "presentation_id": str(presentation.id),
-                "provider": provider.name,
+                "provider": active.name,
                 "references_used": references_used,
             },
         )
         position = start_position
-        try:
-            async for gen in provider.stream_generate_deck(
+        slides_emitted = 0
+
+        async def _drive(p: LLMProvider):
+            nonlocal position, slides_emitted
+            async for gen in p.stream_generate_deck(
                 enriched_prompt, payload.target_slides, payload.deck_type
             ):
                 layout = pick_layout(gen.title, gen.body, gen.layout)
@@ -207,13 +212,36 @@ async def generate_deck_stream(
                     },
                 )
                 position += 1
+                slides_emitted += 1
+
+        try:
+            async for event in _drive(active):
+                yield event
         except Exception as exc:
-            yield _sse("error", {"message": f"{provider.name}: {exc}"})
-            return
+            # If the LLM blew up BEFORE we emitted a single slide, fall back to
+            # the deterministic provider so the user gets *some* deck instead
+            # of a generic "Generation failed" toast. If slides already arrived
+            # we surface the error since partial state is now persisted.
+            if slides_emitted == 0 and not isinstance(active, DeterministicProvider):
+                yield _sse(
+                    "warning",
+                    {"message": f"{active.name} failed ({exc}); using template fallback."},
+                )
+                active = DeterministicProvider()
+                active.stream_delay_ms = 0  # the user has already been waiting
+                try:
+                    async for event in _drive(active):
+                        yield event
+                except Exception as exc2:
+                    yield _sse("error", {"message": f"fallback also failed: {exc2}"})
+                    return
+            else:
+                yield _sse("error", {"message": f"{active.name}: {exc}"})
+                return
         await realtime.notify_invalidate(presentation.id, "ai_generated")
         yield _sse(
             "done",
-            {"presentation_id": str(presentation.id), "slides": position - start_position},
+            {"presentation_id": str(presentation.id), "slides": slides_emitted},
         )
 
     return StreamingResponse(

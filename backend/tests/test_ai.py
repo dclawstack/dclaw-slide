@@ -36,6 +36,49 @@ async def test_deterministic_slide_bodies_reference_the_prompt_subject():
     assert matching >= 2, f"only {matching}/{len(bodies)} slides mention the subject"
 
 
+def test_parse_llm_json_handles_markdown_wrapping():
+    from app.services.ai.providers import _parse_llm_json
+
+    # Direct JSON object.
+    assert _parse_llm_json('{"slides": []}') == {"slides": []}
+
+    # Wrapped in ```json … ```
+    wrapped = '```json\n{"slides": [{"title": "x"}]}\n```'
+    parsed = _parse_llm_json(wrapped)
+    assert parsed == {"slides": [{"title": "x"}]}
+
+    # Wrapped in ```…``` without language tag.
+    assert _parse_llm_json('```\n{"a": 1}\n```') == {"a": 1}
+
+    # Prose preamble + JSON.
+    assert _parse_llm_json('Sure, here it is:\n{"a": 1}\nLet me know!') == {"a": 1}
+
+    # Top-level array.
+    assert _parse_llm_json('[{"title": "one"}]') == [{"title": "one"}]
+
+
+def test_coerce_slides_accepts_top_level_array():
+    from app.services.ai.providers import _coerce_slides
+
+    raw = [
+        {"title": "A", "body": "- one", "layout": "title-bullets"},
+        {"title": "B", "body": "- two", "layout": "title-only"},
+    ]
+    slides = _coerce_slides(raw, target_slides=5)
+    assert len(slides) == 2
+    assert slides[0].title == "A"
+
+
+def test_coerce_slides_accepts_alternative_keys():
+    """Small models sometimes wrap slides under 'deck' or 'presentation'."""
+    from app.services.ai.providers import _coerce_slides
+
+    for key in ("slides", "deck", "presentation", "items"):
+        raw = {key: [{"title": "X", "body": "- y", "layout": "title-only"}]}
+        slides = _coerce_slides(raw, target_slides=3)
+        assert len(slides) == 1
+
+
 @pytest.mark.asyncio
 async def test_deterministic_strips_imperative_prefixes_from_subject():
     """User prompts like 'create a 5-slide pitch about X' should yield slides

@@ -273,8 +273,68 @@ class DeterministicProvider(LLMProvider):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def _coerce_slides(raw: dict, target_slides: int) -> list[GeneratedSlide]:
-    slides_raw = raw.get("slides") if isinstance(raw, dict) else None
+def _parse_llm_json(content: str) -> dict | list:
+    """Tolerant JSON extractor for LLM responses.
+
+    Small models often wrap JSON in markdown code blocks, add a prose
+    preamble ("Sure! Here's the deck:"), or emit a top-level array. This
+    pulls the first JSON object/array we can find rather than failing
+    strictly on extra prose.
+    """
+    content = content.strip()
+    # Strip markdown code fences.
+    if content.startswith("```"):
+        # Drop the first line (```json or ```), then trim the trailing fence.
+        content = content.split("\n", 1)[-1] if "\n" in content else content[3:]
+        if content.rstrip().endswith("```"):
+            content = content.rstrip()[:-3]
+        content = content.strip()
+    # Try direct parse first — fast path when the model behaved.
+    try:
+        return json.loads(content)
+    except json.JSONDecodeError:
+        pass
+    # Find the first balanced { or [ and try sub-strings until one parses.
+    for start_idx, opening in enumerate(content):
+        if opening not in "{[":
+            continue
+        closing = "}" if opening == "{" else "]"
+        depth = 0
+        for end_idx in range(start_idx, len(content)):
+            ch = content[end_idx]
+            if ch == opening:
+                depth += 1
+            elif ch == closing:
+                depth -= 1
+                if depth == 0:
+                    try:
+                        return json.loads(content[start_idx : end_idx + 1])
+                    except json.JSONDecodeError:
+                        break
+        if depth == 0:
+            break
+    raise ValueError(f"could not extract JSON from LLM response: {content[:200]!r}")
+
+
+def _coerce_slides(raw: object, target_slides: int) -> list[GeneratedSlide]:
+    """Accept either {"slides": [...]} or a top-level array; small models
+    sometimes skip the wrapping object."""
+    if isinstance(raw, list):
+        slides_raw = raw
+    elif isinstance(raw, dict):
+        # Try common keys: slides, deck, presentation, items.
+        slides_raw = (
+            raw.get("slides")
+            or raw.get("deck")
+            or raw.get("presentation")
+            or raw.get("items")
+            or []
+        )
+        # If the object IS a single slide, wrap it.
+        if not slides_raw and {"title", "body"}.issubset(raw.keys()):
+            slides_raw = [raw]
+    else:
+        slides_raw = []
     if not isinstance(slides_raw, list) or not slides_raw:
         raise ValueError("LLM returned no slides")
     out: list[GeneratedSlide] = []
@@ -317,7 +377,7 @@ class OllamaProvider(LLMProvider):
         self.model = model
         self.timeout = timeout
 
-    async def _chat(self, system: str, user: str) -> dict:
+    async def _chat(self, system: str, user: str) -> object:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 f"{self.base_url}/api/chat",
@@ -334,7 +394,7 @@ class OllamaProvider(LLMProvider):
             response.raise_for_status()
             payload = response.json()
         content = payload.get("message", {}).get("content", "")
-        return json.loads(content)
+        return _parse_llm_json(content)
 
     async def generate_deck(
         self, prompt: str, target_slides: int, deck_type: str
@@ -372,7 +432,7 @@ class OpenRouterProvider(LLMProvider):
         self.model = model
         self.timeout = timeout
 
-    async def _chat(self, system: str, user: str) -> dict:
+    async def _chat(self, system: str, user: str) -> object:
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             response = await client.post(
                 self.endpoint,
@@ -393,7 +453,7 @@ class OpenRouterProvider(LLMProvider):
             response.raise_for_status()
             payload = response.json()
         content = payload["choices"][0]["message"]["content"]
-        return json.loads(content)
+        return _parse_llm_json(content)
 
     async def generate_deck(
         self, prompt: str, target_slides: int, deck_type: str
