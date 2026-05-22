@@ -13,6 +13,7 @@ import {
   type Presentation,
   type Theme,
 } from "@/lib/api";
+import { SlideCanvas } from "@/components/slide-canvas";
 
 function newSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -170,21 +171,13 @@ export default function PresenterView() {
   }
 
   const theme = themes.find((t) => t.id === presentation.theme_id);
-  const accent = brandKit?.accent_color || theme?.accent || "#EC4899";
   const background = theme?.background ?? "#0F172A";
-  const isDark = background.toLowerCase() === "#0f172a" || background.toLowerCase() === "#0b0b12";
-  const textColor = isDark ? "#F8FAFC" : "#0F172A";
-  const subTextColor = isDark ? "#94A3B8" : "#475569";
-
-  const bullets = slide.body
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => (line.startsWith("- ") || line.startsWith("* ") ? line.slice(2) : line));
+  const subTextColor = "#94A3B8";
 
   return (
     <main
       className="flex min-h-screen flex-col"
-      style={{ backgroundColor: background, color: textColor }}
+      style={{ backgroundColor: background }}
     >
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-3">
         <span className="text-xs uppercase tracking-widest" style={{ color: subTextColor }}>
@@ -202,71 +195,17 @@ export default function PresenterView() {
         </button>
       </div>
 
-      <div className="flex flex-1 items-center justify-center px-12 py-16">
-        <article className="max-w-5xl">
-          {slide.layout === "section-header" ? (
-            <h1
-              className="text-center text-8xl font-bold tracking-tight"
-              style={{ color: accent }}
-            >
-              {slide.title}
-            </h1>
-          ) : slide.layout === "title-only" ? (
-            <div className="text-center">
-              <h1 className="text-7xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              {bullets.length > 0 && (
-                <p className="mt-8 text-2xl" style={{ color: subTextColor }}>
-                  {bullets.join(" · ")}
-                </p>
-              )}
-            </div>
-          ) : slide.layout === "quote" ? (
-            <blockquote className="text-center">
-              <p
-                className="text-5xl font-light italic leading-snug"
-                style={{ color: textColor }}
-              >
-                {slide.body}
-              </p>
-              <footer className="mt-6 text-lg" style={{ color: subTextColor }}>
-                — {slide.title}
-              </footer>
-            </blockquote>
-          ) : slide.layout === "two-column" ? (
-            <div>
-              <h1 className="mb-10 text-5xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              <div className="grid grid-cols-2 gap-10">
-                {bullets.map((b, i) => (
-                  <div
-                    key={i}
-                    className="rounded-xl border p-6 text-2xl"
-                    style={{ borderColor: "rgba(255,255,255,0.1)", color: textColor }}
-                  >
-                    {b}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <h1 className="mb-8 text-5xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              <ul className="space-y-4 text-3xl" style={{ color: textColor }}>
-                {bullets.map((b, i) => (
-                  <li key={i} className="flex gap-4">
-                    <span style={{ color: accent }}>•</span>
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </article>
+      <div className="flex flex-1 items-center justify-center p-8">
+        <div className="w-full max-w-6xl">
+          <SlideCanvas
+            slide={slide}
+            index={index}
+            total={presentation.slides.length}
+            theme={theme}
+            brandKit={brandKit}
+            variant="full"
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-t border-white/10 px-6 py-3">

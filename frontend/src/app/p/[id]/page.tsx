@@ -32,6 +32,7 @@ import {
 } from "@/lib/api";
 import { useToast } from "@/components/providers";
 import { GripVertical } from "lucide-react";
+import { SlideCanvas } from "@/components/slide-canvas";
 
 function newUserId(): string {
   if (typeof window === "undefined") return "anon";
@@ -580,23 +581,37 @@ export default function PresentationDetail() {
                         </button>
                       </div>
                     </div>
-                    <input
-                      defaultValue={slide.title}
-                      onBlur={(e) =>
-                        e.target.value !== slide.title && patchSlide(slide, { title: e.target.value })
-                      }
-                      placeholder="Slide title"
-                      className="w-full bg-transparent text-lg font-semibold text-slate-900 outline-none"
-                    />
-                    <textarea
-                      defaultValue={slide.body}
-                      onBlur={(e) =>
-                        e.target.value !== slide.body && patchSlide(slide, { body: e.target.value })
-                      }
-                      placeholder="Bullets / body"
-                      className="mt-2 w-full resize-y bg-transparent text-sm text-slate-600 outline-none"
-                      rows={Math.max(3, (slide.body.match(/\n/g)?.length ?? 0) + 1)}
-                    />
+                    <div className="grid gap-4 md:grid-cols-[160px_minmax(0,1fr)]">
+                      <div className="md:row-span-2">
+                        <SlideCanvas
+                          slide={slide}
+                          index={idx}
+                          total={presentation.slides.length}
+                          theme={theme}
+                          brandKit={brandKit}
+                          variant="thumb"
+                        />
+                      </div>
+                      <div>
+                        <input
+                          defaultValue={slide.title}
+                          onBlur={(e) =>
+                            e.target.value !== slide.title && patchSlide(slide, { title: e.target.value })
+                          }
+                          placeholder="Slide title"
+                          className="w-full bg-transparent text-lg font-semibold text-slate-900 outline-none"
+                        />
+                        <textarea
+                          defaultValue={slide.body}
+                          onBlur={(e) =>
+                            e.target.value !== slide.body && patchSlide(slide, { body: e.target.value })
+                          }
+                          placeholder="Bullets / body"
+                          className="mt-2 w-full resize-y bg-transparent text-sm text-slate-600 outline-none"
+                          rows={Math.max(3, (slide.body.match(/\n/g)?.length ?? 0) + 1)}
+                        />
+                      </div>
+                    </div>
                     {slide.speaker_notes && (
                       <div className="mt-3 rounded-md bg-slate-50 p-3 text-xs text-slate-600">
                         <div className="mb-1 font-medium uppercase tracking-wide text-slate-400">

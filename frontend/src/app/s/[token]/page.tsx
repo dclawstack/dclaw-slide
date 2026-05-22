@@ -9,7 +9,9 @@ import {
   ApiError,
   type AnalyticsEventType,
   type Presentation,
+  type Theme,
 } from "@/lib/api";
+import { SlideCanvas } from "@/components/slide-canvas";
 
 function newSessionId(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
@@ -21,7 +23,7 @@ export default function PublicSharePage() {
   const token = params?.token;
 
   const [presentation, setPresentation] = useState<Presentation | null>(null);
-  const [accent, setAccent] = useState("#EC4899");
+  const [theme, setTheme] = useState<Theme | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [needsPassword, setNeedsPassword] = useState(false);
   const [password, setPassword] = useState("");
@@ -105,14 +107,14 @@ export default function PublicSharePage() {
     return () => window.removeEventListener("keydown", onKey);
   }, [presentation, index, recordEvent]);
 
-  // Try to pick an accent from the theme catalog (best-effort, no auth needed).
+  // Pick the matching theme from the catalog so SlideCanvas can render with it.
   useEffect(() => {
     if (!presentation) return;
     api
       .themes()
       .then((themes) => {
-        const t = themes.find((x) => x.id === presentation.theme_id);
-        if (t) setAccent(t.accent);
+        const t = themes.find((x) => x.id === presentation.theme_id) ?? null;
+        setTheme(t);
       })
       .catch(() => undefined);
   }, [presentation]);
@@ -170,68 +172,27 @@ export default function PublicSharePage() {
     );
   }
 
-  const bullets = slide.body
-    .split("\n")
-    .filter((l) => l.trim())
-    .map((l) => (l.startsWith("- ") || l.startsWith("* ") ? l.slice(2) : l));
-
   return (
-    <main className="flex min-h-screen flex-col bg-slate-900 text-white">
+    <main
+      className="flex min-h-screen flex-col"
+      style={{ backgroundColor: theme?.background ?? "#0F172A" }}
+    >
       <div className="flex items-center justify-between border-b border-white/10 px-6 py-3 text-xs text-slate-400">
         <span>{presentation.title}</span>
         <span className="font-mono">{index + 1} / {presentation.slides.length}</span>
         <span className="text-slate-500">Shared via DClaw Slide</span>
       </div>
 
-      <div className="flex flex-1 items-center justify-center px-12 py-16">
-        <article className="max-w-5xl">
-          {slide.layout === "section-header" ? (
-            <h1 className="text-center text-8xl font-bold" style={{ color: accent }}>
-              {slide.title}
-            </h1>
-          ) : slide.layout === "title-only" ? (
-            <div className="text-center">
-              <h1 className="text-7xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              {bullets.length > 0 && (
-                <p className="mt-8 text-2xl text-slate-300">{bullets.join(" · ")}</p>
-              )}
-            </div>
-          ) : slide.layout === "quote" ? (
-            <blockquote className="text-center">
-              <p className="text-5xl font-light italic">{slide.body}</p>
-              <footer className="mt-6 text-lg text-slate-400">— {slide.title}</footer>
-            </blockquote>
-          ) : slide.layout === "two-column" ? (
-            <div>
-              <h1 className="mb-10 text-5xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              <div className="grid grid-cols-2 gap-10">
-                {bullets.map((b, i) => (
-                  <div key={i} className="rounded-xl border border-white/10 p-6 text-2xl">
-                    {b}
-                  </div>
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div>
-              <h1 className="mb-8 text-5xl font-bold" style={{ color: accent }}>
-                {slide.title}
-              </h1>
-              <ul className="space-y-4 text-3xl">
-                {bullets.map((b, i) => (
-                  <li key={i} className="flex gap-4">
-                    <span style={{ color: accent }}>•</span>
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </article>
+      <div className="flex flex-1 items-center justify-center p-8">
+        <div className="w-full max-w-6xl">
+          <SlideCanvas
+            slide={slide}
+            index={index}
+            total={presentation.slides.length}
+            theme={theme}
+            variant="full"
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between border-t border-white/10 px-6 py-3 text-xs text-slate-400">
