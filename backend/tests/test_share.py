@@ -96,6 +96,33 @@ async def test_share_link_rotated_on_recreate(client):
 
 
 @pytest.mark.asyncio
+async def test_share_repo_recovers_from_concurrent_create(client):
+    """If two POST /share requests race, the loser of UNIQUE(presentation_id)
+    must converge on the winner's row instead of surfacing a 500."""
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models.share_link import ShareLink
+    from app.repositories.share_link_repo import ShareLinkRepository
+    from app.services.share import new_token
+    from tests.conftest import test_engine
+
+    from uuid import UUID
+    created = await client.post("/api/v1/presentations", json={"title": "Race"})
+    pid = UUID(created.json()["id"])
+
+    async def _create() -> ShareLink:
+        async with AsyncSession(test_engine, expire_on_commit=False) as session:
+            return await ShareLinkRepository(session).create_safe(
+                ShareLink(presentation_id=pid, token=new_token())
+            )
+
+    first, second = await asyncio.gather(_create(), _create())
+    assert first.id == second.id  # both observers converged on the same row
+
+
+@pytest.mark.asyncio
 async def test_share_link_revoke(client):
     created = await client.post("/api/v1/presentations", json={"title": "Revoke"})
     pid = created.json()["id"]

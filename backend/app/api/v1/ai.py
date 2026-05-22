@@ -50,65 +50,51 @@ class SpeakerNotesResponse(BaseModel):
     provider: str
 
 
-@router.post(
-    "/generate-deck",
-    response_model=GenerateDeckResponse,
-    status_code=status.HTTP_201_CREATED,
-)
-async def generate_deck(
-    payload: GenerateDeckRequest, db: AsyncSession = Depends(get_db)
-) -> GenerateDeckResponse:
-    if get_theme(payload.theme_id) is None:
-        raise HTTPException(status_code=400, detail=f"unknown theme_id: {payload.theme_id}")
-
-    presentation_repo = PresentationRepository(db)
+async def _load_or_create_deck(
+    payload: GenerateDeckRequest, db: AsyncSession
+) -> Presentation:
+    repo = PresentationRepository(db)
     if payload.presentation_id is not None:
-        presentation = await presentation_repo.get_with_slides(payload.presentation_id)
+        presentation = await repo.get_with_slides(payload.presentation_id)
         if presentation is None:
             raise HTTPException(status_code=404, detail="presentation not found")
-    else:
-        title = payload.title or payload.prompt.strip()[:80] or "Generated deck"
-        presentation = await presentation_repo.create(
-            Presentation(title=title, theme_id=payload.theme_id, template=payload.theme_id)
-        )
+        return presentation
+    title = payload.title or payload.prompt.strip()[:80] or "Generated deck"
+    return await repo.create(
+        Presentation(title=title, theme_id=payload.theme_id, template=payload.theme_id)
+    )
 
-    # Brand-RAG: retrieve top references and inline them as prompt context.
-    references_used = 0
-    enriched_prompt = payload.prompt
-    if payload.use_brand_references:
-        refs_result = await db.execute(
-            select(BrandReference).where(BrandReference.workspace_id == payload.workspace_id)
-        )
-        refs = list(refs_result.scalars().all())
-        hits = rank(payload.prompt, refs)[:3]
-        if hits:
-            references_used = len(hits)
-            enriched_prompt = (
-                f"{format_for_prompt(hits)}\n\nUSER REQUEST:\n{payload.prompt}"
-            )
 
-    provider = await select_provider()
-    try:
-        generated = await provider.generate_deck(
-            enriched_prompt, payload.target_slides, payload.deck_type
-        )
-    except Exception as exc:  # network failure / bad JSON — never bubble up raw
-        raise HTTPException(
-            status_code=502,
-            detail=f"AI provider '{provider.name}' failed: {exc}",
-        )
+async def _build_enriched_prompt(
+    payload: GenerateDeckRequest, db: AsyncSession
+) -> tuple[str, int]:
+    """Returns (prompt_to_send_to_llm, references_used)."""
+    if not payload.use_brand_references:
+        return payload.prompt, 0
+    refs_result = await db.execute(
+        select(BrandReference).where(BrandReference.workspace_id == payload.workspace_id)
+    )
+    hits = rank(payload.prompt, list(refs_result.scalars().all()))[:3]
+    if not hits:
+        return payload.prompt, 0
+    return f"{format_for_prompt(hits)}\n\nUSER REQUEST:\n{payload.prompt}", len(hits)
 
-    slide_repo = SlideRepository(db)
-    if payload.replace_existing:
+
+async def _persist_generated_slides(
+    presentation: Presentation,
+    generated: list,
+    replace_existing: bool,
+    db: AsyncSession,
+) -> None:
+    if replace_existing:
         for s in list(presentation.slides):
             await db.delete(s)
         await db.flush()
         start = 0
     else:
-        start = await slide_repo.next_position(presentation.id)
-
+        start = await SlideRepository(db).next_position(presentation.id)
     for offset, gen in enumerate(generated):
-        # Critic step: heuristic layout picker overrides whatever the LLM chose.
+        # Critic step: heuristic picker overrides whatever the LLM chose.
         layout = pick_layout(gen.title, gen.body, gen.layout)
         db.add(
             Slide(
@@ -119,6 +105,30 @@ async def generate_deck(
                 layout=layout,
             )
         )
+
+
+@router.post(
+    "/generate-deck",
+    response_model=GenerateDeckResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def generate_deck(
+    payload: GenerateDeckRequest, db: AsyncSession = Depends(get_db)
+) -> GenerateDeckResponse:
+    if get_theme(payload.theme_id) is None:
+        raise HTTPException(status_code=400, detail=f"unknown theme_id: {payload.theme_id}")
+    presentation = await _load_or_create_deck(payload, db)
+    enriched_prompt, references_used = await _build_enriched_prompt(payload, db)
+    provider = await select_provider()
+    try:
+        generated = await provider.generate_deck(
+            enriched_prompt, payload.target_slides, payload.deck_type
+        )
+    except Exception as exc:  # network failure / bad JSON — never bubble up raw
+        raise HTTPException(
+            status_code=502, detail=f"AI provider '{provider.name}' failed: {exc}"
+        )
+    await _persist_generated_slides(presentation, generated, payload.replace_existing, db)
     await db.commit()
     await db.refresh(presentation, ["slides"])
     await realtime.notify_invalidate(presentation.id, "ai_generated")

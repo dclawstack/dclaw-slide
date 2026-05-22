@@ -157,7 +157,16 @@ Strict order. Each row blocks the next.
   - C1.3: `image-right` + `chart` layouts → unlock once C2.3 (image gen) and C2.4 (data-bound slides) provide the missing inputs.
 - **C2:** Not started — ready when funding/pilot requires.
 
-Tests: **54 / 54 pytest green** on SQLite + Postgres (added a race-recovery test for `BrandKitRepository.get_or_create`); **`tsc --noEmit` clean** across 7 routes.
+Tests: **58 / 58 pytest green** on SQLite + Postgres; **`tsc --noEmit` clean** across 7 routes.
+
+Subsequent bug-hunt + reliability passes added (all on top of C0/C1 spec):
+- Race-recovery test for `BrandKitRepository.get_or_create` (UNIQUE collision under React StrictMode).
+- `presentation_repo.list_for_workspace` rewritten to `SELECT COUNT(*)` instead of `len(list(...))` (perf at scale).
+- Deterministic AI provider no longer leaks `- TODO` placeholders when `target_slides` exceeds template length (prompt-derived deep-dive slides instead).
+- `/analytics/event` endpoint accepts `text/plain` JSON bodies so cross-origin `navigator.sendBeacon` dropoff events actually land (covered by 2 tests).
+- WebSocket client auto-reconnects with exponential backoff (1s→30s); caller gets a `PresentationSocketHandle` to stop reconnect on unmount.
+- `generate_deck()` refactored under the AGENTS 50-line limit (three helpers: `_load_or_create_deck`, `_build_enriched_prompt`, `_persist_generated_slides`).
+- `ShareLinkRepository.create_safe()` catches `IntegrityError` on UNIQUE(presentation_id) and converges on the winner (covered by an async-gather race test).
 
 ---
 

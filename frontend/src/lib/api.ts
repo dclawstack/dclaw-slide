@@ -299,26 +299,66 @@ export interface RealtimeEventInvalidate {
 }
 export type RealtimeEvent = RealtimeEventPresence | RealtimeEventInvalidate;
 
+export interface PresentationSocketHandle {
+  /** Tear down the connection and stop any reconnect attempts. */
+  close(): void;
+}
+
+/**
+ * Open a long-lived WebSocket to the presentation room. Auto-reconnects with
+ * exponential backoff (1s, 2s, 4s, 8s, capped at 30s) if the server restarts
+ * or the network blips. Caller gets back a handle whose `.close()` is the
+ * canonical way to stop reconnect attempts (e.g., on component unmount).
+ */
 export function presentationSocket(
   presentationId: string,
   userId: string,
   onEvent: (event: RealtimeEvent) => void,
-): WebSocket | null {
+): PresentationSocketHandle | null {
   if (typeof window === "undefined") return null;
   const base = API_BASE.replace(/^http/, "ws");
   const url = `${base}/api/v1/ws/presentations/${presentationId}?user_id=${encodeURIComponent(userId)}`;
-  const ws = new WebSocket(url);
-  ws.onmessage = (e) => {
-    try {
-      onEvent(JSON.parse(e.data) as RealtimeEvent);
-    } catch {
-      /* ignore malformed frames */
-    }
+
+  let socket: WebSocket | null = null;
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let backoffMs = 1000;
+  let stopped = false;
+
+  function connect() {
+    if (stopped) return;
+    socket = new WebSocket(url);
+    socket.onopen = () => {
+      backoffMs = 1000; // healthy connection — reset the backoff
+    };
+    socket.onmessage = (e) => {
+      try {
+        onEvent(JSON.parse(e.data) as RealtimeEvent);
+      } catch {
+        /* ignore malformed frames */
+      }
+    };
+    socket.onclose = () => {
+      if (pingTimer) clearInterval(pingTimer);
+      pingTimer = null;
+      if (stopped) return;
+      reconnectTimer = setTimeout(connect, backoffMs);
+      backoffMs = Math.min(backoffMs * 2, 30_000);
+    };
+    // Keepalive ping every 25s so proxies don't kill the connection.
+    pingTimer = setInterval(() => {
+      if (socket?.readyState === WebSocket.OPEN) socket.send("ping");
+    }, 25_000);
+  }
+
+  connect();
+
+  return {
+    close() {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (pingTimer) clearInterval(pingTimer);
+      socket?.close();
+    },
   };
-  // Keepalive ping every 25s so proxies don't kill the connection.
-  const ping = setInterval(() => {
-    if (ws.readyState === WebSocket.OPEN) ws.send("ping");
-  }, 25_000);
-  ws.addEventListener("close", () => clearInterval(ping));
-  return ws;
 }

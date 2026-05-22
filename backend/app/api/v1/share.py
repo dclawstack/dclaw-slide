@@ -70,23 +70,23 @@ async def create_or_rotate_share_link(
     existing = await repo.get_for_presentation(presentation_id)
 
     if existing is None:
-        link = ShareLink(
-            presentation_id=presentation_id,
-            token=new_token(),
-            password_hash=hash_password(payload.password),
-            allow_edit=payload.allow_edit,
-            expires_at=expires,
+        link = await repo.create_safe(
+            ShareLink(
+                presentation_id=presentation_id,
+                token=new_token(),
+                password_hash=hash_password(payload.password),
+                allow_edit=payload.allow_edit,
+                expires_at=expires,
+            )
         )
-        db.add(link)
     else:
         existing.token = new_token()
         existing.password_hash = hash_password(payload.password)
         existing.allow_edit = payload.allow_edit
         existing.expires_at = expires
+        await db.commit()
+        await db.refresh(existing)
         link = existing
-
-    await db.commit()
-    await db.refresh(link)
     return _to_read(link)
 
 
