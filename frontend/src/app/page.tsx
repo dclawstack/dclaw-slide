@@ -19,12 +19,16 @@ import {
 } from "lucide-react";
 
 import { SlideCanvas } from "@/components/slide-canvas";
+// Demo seed/clear controls — remove this import + the <DemoDataControls /> usage
+// below, plus src/components/demo-data-controls.tsx, to delete the feature.
+import { DemoDataControls } from "@/components/demo-data-controls";
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-white text-slate-900">
       <TopNav />
       <Hero />
+      <DemoDataControls />
       <TrustBand />
       <WedgeSection />
       <FeatureGrid />

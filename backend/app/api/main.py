@@ -11,6 +11,7 @@ from app.api.v1 import (
     analytics,
     brand_kits,
     brand_references,
+    demo,
     presentations,
     share,
     themes,
@@ -60,3 +61,5 @@ app.include_router(
 )
 app.include_router(share.router, prefix="/api/v1/share", tags=["share"])
 app.include_router(ws.router, prefix="/api/v1/ws")
+# Demo seed/clear — remove this line + app/api/v1/demo.py to delete the feature.
+app.include_router(demo.router, prefix="/api/v1/demo", tags=["demo"])
