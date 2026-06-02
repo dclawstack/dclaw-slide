@@ -138,6 +138,7 @@ export default function PublicSharePage() {
             onChange={(e) => setPassword(e.target.value)}
             autoFocus
             placeholder="Enter password"
+            aria-label="Password"
             className="w-full rounded-lg border border-white/20 bg-slate-900 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:border-rose-400 focus:outline-none"
           />
           {error && (

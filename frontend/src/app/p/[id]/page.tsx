@@ -457,6 +457,7 @@ export default function PresentationDetail() {
           value={presentation.title}
           onChange={(e) => setPresentation({ ...presentation, title: e.target.value })}
           onBlur={(e) => handleRename(e.target.value)}
+          aria-label="Presentation title"
           className="w-full bg-transparent text-3xl font-bold text-slate-900 outline-none"
         />
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
@@ -474,6 +475,7 @@ export default function PresentationDetail() {
             <select
               value={presentation.theme_id}
               onChange={(e) => handleThemeChange(e.target.value)}
+              aria-label="Theme"
               className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
             >
               {themes.map((t) => (
@@ -524,6 +526,7 @@ export default function PresentationDetail() {
               <textarea
                 value={outline}
                 onChange={(e) => setOutline(e.target.value)}
+                aria-label="Outline markdown"
                 className="h-60 w-full resize-y rounded-lg border border-slate-300 p-3 font-mono text-xs focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
               />
               <button
@@ -573,6 +576,15 @@ export default function PresentationDetail() {
                   setDragOverId(null);
                 }}
                 onClick={() => setSelectedSlideId(slide.id)}
+                role="button"
+                tabIndex={0}
+                aria-label={`Edit slide ${idx + 1}`}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedSlideId(slide.id);
+                  }
+                }}
                 className={`group cursor-pointer rounded-2xl border bg-white p-3 shadow-sm transition hover:border-rose-300 hover:shadow-md ${
                   selectedSlideId === slide.id ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-200"
                 } ${dragOverId === slide.id ? "ring-2 ring-rose-300" : ""} ${
@@ -661,7 +673,19 @@ function SlideEditDrawer({
   if (!slide) return null;
   const showQuestions = notesPanel?.slideId === slide.id;
   return (
-    <div className="fixed inset-0 z-40 flex animate-fade-in" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-40 flex animate-fade-in"
+      role="button"
+      tabIndex={0}
+      aria-label="Close slide editor"
+      onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+    >
       <div className="flex-1 bg-slate-900/30 backdrop-blur-sm" />
       <aside
         onClick={(e) => e.stopPropagation()}
@@ -675,6 +699,7 @@ function SlideEditDrawer({
             <select
               value={slide.layout}
               onChange={(e) => onPatch(slide, { layout: e.target.value })}
+              aria-label="Slide layout"
               className="-ml-1 rounded-md border border-transparent bg-transparent px-1 py-0.5 text-sm font-medium text-slate-900 hover:border-slate-300 focus:border-rose-500 focus:outline-none"
             >
               <option value="title-only">title-only</option>
@@ -738,6 +763,7 @@ function SlideEditDrawer({
                 e.target.value !== slide.title && onPatch(slide, { title: e.target.value })
               }
               placeholder="Slide title"
+              aria-label="Slide title"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base font-semibold text-slate-900 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
             />
           </div>
@@ -752,6 +778,7 @@ function SlideEditDrawer({
                 e.target.value !== slide.body && onPatch(slide, { body: e.target.value })
               }
               placeholder="- Bullet one&#10;- Bullet two"
+              aria-label="Slide body"
               rows={Math.max(6, (slide.body.match(/\n/g)?.length ?? 0) + 2)}
               className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 font-mono text-sm text-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
             />
@@ -768,6 +795,7 @@ function SlideEditDrawer({
                 onPatch(slide, { speaker_notes: e.target.value })
               }
               placeholder="What you'll say while this slide is up…"
+              aria-label="Speaker notes"
               rows={4}
               className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
             />
@@ -815,7 +843,7 @@ function ShareDialog({
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-900">Share this deck</h2>
-          <button onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-100">
+          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-slate-100">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -831,6 +859,7 @@ function ShareDialog({
                   readOnly
                   value={shareUrl}
                   onFocus={(e) => e.target.select()}
+                  aria-label="Public share link"
                   className="flex-1 rounded-md border border-slate-300 bg-white px-2 py-1 font-mono text-xs"
                 />
                 <button
@@ -893,6 +922,7 @@ function ShareDialog({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Leave blank for no password"
+                aria-label="Password (optional)"
                 className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none"
               />
             </div>
@@ -909,6 +939,7 @@ function ShareDialog({
                   setExpiresInDays(e.target.value === "" ? "" : Number(e.target.value))
                 }
                 placeholder="Never expires"
+                aria-label="Expires in (days)"
                 className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm focus:border-rose-500 focus:outline-none"
               />
             </div>

@@ -234,6 +234,7 @@ export default function BrandKitPage() {
               value={refTitle}
               onChange={(e) => setRefTitle(e.target.value)}
               placeholder="Title (e.g. Q3 board deck)"
+              aria-label="Brand reference title"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
             />
             <input
@@ -241,6 +242,7 @@ export default function BrandKitPage() {
               value={refBody}
               onChange={(e) => setRefBody(e.target.value)}
               placeholder="A paragraph of brand-voice text…"
+              aria-label="Brand reference text"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
             />
             <button
@@ -301,6 +303,7 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={label}
         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
       />
     </label>
@@ -326,12 +329,14 @@ function ColorField({
           type="color"
           value={value}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
+          aria-label={`${label} color picker`}
           className="h-10 w-12 cursor-pointer rounded-md border border-slate-300"
         />
         <input
           type="text"
           value={value}
           onChange={(e) => onChange(e.target.value.toUpperCase())}
+          aria-label={`${label} hex value`}
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 font-mono text-xs focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
         />
       </div>
@@ -359,6 +364,7 @@ function TextareaField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        aria-label={label}
         rows={4}
         className="w-full resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
       />

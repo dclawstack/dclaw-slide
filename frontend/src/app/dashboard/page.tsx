@@ -122,11 +122,13 @@ export default function Dashboard() {
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
               placeholder="A 7-slide pitch for an AI presentation tool"
+              aria-label="Deck description prompt"
               className="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
             />
             <select
               value={aiDeckType}
               onChange={(e) => setAiDeckType(e.target.value as DeckType)}
+              aria-label="Deck type"
               className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
             >
               <option value="pitch">Pitch</option>
@@ -139,6 +141,7 @@ export default function Dashboard() {
               max={16}
               value={aiSlides}
               onChange={(e) => setAiSlides(Math.max(3, Math.min(16, Number(e.target.value) || 8)))}
+              aria-label="Number of slides"
               className="w-20 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:outline-none"
             />
             <button
@@ -166,6 +169,7 @@ export default function Dashboard() {
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Series A Pitch"
+                  aria-label="Title"
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
                 />
               </div>
@@ -176,6 +180,7 @@ export default function Dashboard() {
                 <select
                   value={themeId}
                   onChange={(e) => setThemeId(e.target.value)}
+                  aria-label="Theme"
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-rose-500 focus:ring-1 focus:ring-rose-500 focus:outline-none"
                 >
                   {themes.map((t) => (
