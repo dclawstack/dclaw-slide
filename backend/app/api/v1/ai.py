@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import async_session, get_db
 from app.models.brand_reference import BrandReference
 from app.models.presentation import Presentation, Slide
 from app.repositories.presentation_repo import PresentationRepository, SlideRepository
@@ -202,112 +202,119 @@ async def generate_deck_stream(
         0 if payload.replace_existing
         else await SlideRepository(db).next_position(presentation.id)
     )
+    # Capture the id now; the request-scoped `db`/`presentation` are closed once
+    # the route returns, so the generator below must NOT reuse them.
+    presentation_id = presentation.id
 
     async def event_stream():
-        active: LLMProvider = provider
-        yield _sse(
-            "ready",
-            {
-                "presentation_id": str(presentation.id),
-                "provider": active.name,
-                "references_used": references_used,
-            },
-        )
-        position = start_position
-        slides_emitted = 0
-
-        async def _drive(p: LLMProvider):
-            nonlocal position, slides_emitted
-            async for gen in p.stream_generate_deck(
-                enriched_prompt, payload.target_slides, payload.deck_type
-            ):
-                layout = pick_layout(gen.title, gen.body, gen.layout)
-                slide = Slide(
-                    presentation_id=presentation.id,
-                    position=position,
-                    title=gen.title,
-                    body=gen.body,
-                    layout=layout,
-                )
-                db.add(slide)
-                await db.commit()
-                await db.refresh(slide)
-                yield _sse(
-                    "slide",
-                    {
-                        "id": str(slide.id),
-                        "position": slide.position,
-                        "title": slide.title,
-                        "body": slide.body,
-                        "layout": slide.layout,
-                    },
-                )
-                position += 1
-                slides_emitted += 1
-
-        try:
-            async for event in _drive(active):
-                yield event
-        except Exception as exc:
-            # If the LLM blew up BEFORE we emitted a single slide, fall back to
-            # the deterministic provider so the user gets *some* deck instead
-            # of a generic "Generation failed" toast. If slides already arrived
-            # we surface the error since partial state is now persisted.
-            if slides_emitted == 0 and not isinstance(active, DeterministicProvider):
-                yield _sse(
-                    "warning",
-                    {"message": f"{active.name} failed ({exc}); using template fallback."},
-                )
-                active = DeterministicProvider()
-                active.stream_delay_ms = 0  # the user has already been waiting
-                try:
-                    async for event in _drive(active):
-                        yield event
-                except Exception as exc2:
-                    yield _sse("error", {"message": f"fallback also failed: {exc2}"})
-                    return
-            else:
-                yield _sse("error", {"message": f"{active.name}: {exc}"})
-                return
-
-        # Top-up: if the LLM stopped short of the target, fill with deterministic
-        # template slides so the user gets the deck length they asked for.
-        if slides_emitted < payload.target_slides:
-            deterministic = DeterministicProvider()
-            deterministic.stream_delay_ms = 0
-            template = await deterministic.generate_deck(
-                payload.prompt, payload.target_slides, payload.deck_type
+        # The SSE generator keeps running after the request returns, so it owns
+        # a FRESH session for its whole lifetime instead of the request-scoped
+        # one (which is already closed by the time slides stream out).
+        async with async_session() as db:
+            active: LLMProvider = provider
+            yield _sse(
+                "ready",
+                {
+                    "presentation_id": str(presentation_id),
+                    "provider": active.name,
+                    "references_used": references_used,
+                },
             )
-            for gen in template[slides_emitted:payload.target_slides]:
-                layout = pick_layout(gen.title, gen.body, gen.layout)
-                slide = Slide(
-                    presentation_id=presentation.id,
-                    position=position,
-                    title=gen.title,
-                    body=gen.body,
-                    layout=layout,
-                )
-                db.add(slide)
-                await db.commit()
-                await db.refresh(slide)
-                yield _sse(
-                    "slide",
-                    {
-                        "id": str(slide.id),
-                        "position": slide.position,
-                        "title": slide.title,
-                        "body": slide.body,
-                        "layout": slide.layout,
-                    },
-                )
-                position += 1
-                slides_emitted += 1
+            position = start_position
+            slides_emitted = 0
 
-        await realtime.notify_invalidate(presentation.id, "ai_generated")
-        yield _sse(
-            "done",
-            {"presentation_id": str(presentation.id), "slides": slides_emitted},
-        )
+            async def _drive(p: LLMProvider):
+                nonlocal position, slides_emitted
+                async for gen in p.stream_generate_deck(
+                    enriched_prompt, payload.target_slides, payload.deck_type
+                ):
+                    layout = pick_layout(gen.title, gen.body, gen.layout)
+                    slide = Slide(
+                        presentation_id=presentation_id,
+                        position=position,
+                        title=gen.title,
+                        body=gen.body,
+                        layout=layout,
+                    )
+                    db.add(slide)
+                    await db.commit()
+                    await db.refresh(slide)
+                    yield _sse(
+                        "slide",
+                        {
+                            "id": str(slide.id),
+                            "position": slide.position,
+                            "title": slide.title,
+                            "body": slide.body,
+                            "layout": slide.layout,
+                        },
+                    )
+                    position += 1
+                    slides_emitted += 1
+
+            try:
+                async for event in _drive(active):
+                    yield event
+            except Exception as exc:
+                # If the LLM blew up BEFORE we emitted a single slide, fall back to
+                # the deterministic provider so the user gets *some* deck instead
+                # of a generic "Generation failed" toast. If slides already arrived
+                # we surface the error since partial state is now persisted.
+                if slides_emitted == 0 and not isinstance(active, DeterministicProvider):
+                    yield _sse(
+                        "warning",
+                        {"message": f"{active.name} failed ({exc}); using template fallback."},
+                    )
+                    active = DeterministicProvider()
+                    active.stream_delay_ms = 0  # the user has already been waiting
+                    try:
+                        async for event in _drive(active):
+                            yield event
+                    except Exception as exc2:
+                        yield _sse("error", {"message": f"fallback also failed: {exc2}"})
+                        return
+                else:
+                    yield _sse("error", {"message": f"{active.name}: {exc}"})
+                    return
+
+            # Top-up: if the LLM stopped short of the target, fill with deterministic
+            # template slides so the user gets the deck length they asked for.
+            if slides_emitted < payload.target_slides:
+                deterministic = DeterministicProvider()
+                deterministic.stream_delay_ms = 0
+                template = await deterministic.generate_deck(
+                    payload.prompt, payload.target_slides, payload.deck_type
+                )
+                for gen in template[slides_emitted:payload.target_slides]:
+                    layout = pick_layout(gen.title, gen.body, gen.layout)
+                    slide = Slide(
+                        presentation_id=presentation_id,
+                        position=position,
+                        title=gen.title,
+                        body=gen.body,
+                        layout=layout,
+                    )
+                    db.add(slide)
+                    await db.commit()
+                    await db.refresh(slide)
+                    yield _sse(
+                        "slide",
+                        {
+                            "id": str(slide.id),
+                            "position": slide.position,
+                            "title": slide.title,
+                            "body": slide.body,
+                            "layout": slide.layout,
+                        },
+                    )
+                    position += 1
+                    slides_emitted += 1
+
+            await realtime.notify_invalidate(presentation_id, "ai_generated")
+            yield _sse(
+                "done",
+                {"presentation_id": str(presentation_id), "slides": slides_emitted},
+            )
 
     return StreamingResponse(
         event_stream(),
