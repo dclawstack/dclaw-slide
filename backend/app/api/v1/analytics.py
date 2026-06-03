@@ -123,8 +123,10 @@ async def analytics_summary(
             )
         )
 
-    finishes = sum(1 for e in events if e.event_type == "finish")
-    completion = (finishes / len(sessions)) if sessions else 0.0
+    # Count DISTINCT sessions that finished — a session can emit more than one
+    # "finish" event, which previously let completion_rate exceed 1.0.
+    finished_sessions = {e.session_id for e in events if e.event_type == "finish"}
+    completion = (len(finished_sessions) / len(sessions)) if sessions else 0.0
 
     return AnalyticsSummary(
         presentation_id=presentation_id,
