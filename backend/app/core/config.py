@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 60
 
+    # CORS — explicit allowed origins (env-overridable). Must not be "*" while
+    # allow_credentials=True.
+    cors_origins: list[str] = ["http://localhost:5173"]
+
     # AI provider config — see app.services.ai
     ai_provider: str = "auto"  # one of: auto, ollama, openrouter, deterministic
     ollama_url: str = "http://localhost:11434"

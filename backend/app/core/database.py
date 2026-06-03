@@ -1,4 +1,8 @@
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 from app.core.config import settings
 from app.models.base import Base
 
@@ -10,9 +14,13 @@ engine = create_async_engine(
     pool_pre_ping=True,
 )
 
+# Session factory for code that needs its own session outside the request scope
+# (e.g. background tasks, SSE/streaming generators that outlive the request).
+async_session = async_sessionmaker(engine, expire_on_commit=False)
+
 
 async def get_db() -> AsyncSession:
-    async with AsyncSession(engine, expire_on_commit=False) as session:
+    async with async_session() as session:
         try:
             yield session
         finally:

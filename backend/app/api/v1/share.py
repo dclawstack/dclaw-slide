@@ -122,8 +122,16 @@ async def public_view(
     db: AsyncSession = Depends(get_db),
 ) -> PublicShareResponse:
     link = await _load_active_link(token, db)
-    if not verify_password(x_share_password or "", link.password_hash):
-        raise HTTPException(status_code=401, detail="password required or incorrect")
+    if link.password_hash:
+        # Protected link: require a non-empty supplied password and a real hash
+        # comparison. Never accept an empty/arbitrary password.
+        if not x_share_password or not verify_password(
+            x_share_password, link.password_hash
+        ):
+            raise HTTPException(
+                status_code=401, detail="password required or incorrect"
+            )
+    # else: no password set → public link, no verification required.
 
     repo = PresentationRepository(db)
     presentation = await repo.get_with_slides(link.presentation_id)
