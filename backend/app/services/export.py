@@ -7,9 +7,23 @@ local Mac dev, Linux CI, and the production python:3.11-slim image.
 from __future__ import annotations
 
 import io
+import re
 import zipfile
 from dataclasses import dataclass
 from html import escape
+
+# theme_accent is user-controlled and interpolated into a CSS string, so it must
+# be restricted to a safe color token (e.g. "#0ea5e9") to prevent CSS/HTML
+# injection. Anything that doesn't match falls back to this default.
+_DEFAULT_ACCENT = "#0ea5e9"
+_HEX_COLOR_RE = re.compile(r"#[0-9A-Fa-f]{3,8}")
+
+
+def _safe_accent(theme_accent: str | None) -> str:
+    candidate = (theme_accent or "").strip()
+    if not _HEX_COLOR_RE.fullmatch(candidate):
+        return _DEFAULT_ACCENT
+    return candidate
 
 from pptx import Presentation as PPTXPresentation
 from pptx.util import Inches, Pt
@@ -93,7 +107,7 @@ def render_html(presentation: ExportInput) -> bytes:
         )
     document = _HTML_TEMPLATE.format(
         title=escape(presentation.title),
-        accent=presentation.theme_accent,
+        accent=_safe_accent(presentation.theme_accent),
         slides_html="\n".join(slides_html),
     )
 
