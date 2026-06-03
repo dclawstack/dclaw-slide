@@ -319,25 +319,19 @@ def _parse_llm_json(content: str) -> dict | list:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
-    # Find the first balanced { or [ and try sub-strings until one parses.
+    # Scan for the first position where a valid JSON value begins. raw_decode
+    # correctly handles strings/escapes/nesting (the old manual brace-depth
+    # counter miscounted braces inside string literals and bailed on the first
+    # failure); keep scanning to the next opening char on failure.
+    decoder = json.JSONDecoder()
     for start_idx, opening in enumerate(content):
         if opening not in "{[":
             continue
-        closing = "}" if opening == "{" else "]"
-        depth = 0
-        for end_idx in range(start_idx, len(content)):
-            ch = content[end_idx]
-            if ch == opening:
-                depth += 1
-            elif ch == closing:
-                depth -= 1
-                if depth == 0:
-                    try:
-                        return json.loads(content[start_idx : end_idx + 1])
-                    except json.JSONDecodeError:
-                        break
-        if depth == 0:
-            break
+        try:
+            obj, _ = decoder.raw_decode(content[start_idx:])
+            return obj
+        except json.JSONDecodeError:
+            continue
     raise ValueError(f"could not extract JSON from LLM response: {content[:200]!r}")
 
 
