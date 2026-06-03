@@ -67,18 +67,32 @@ class RoomManager:
         return sorted({m.user_id for m in self._rooms.get(presentation_id, {}).values()})
 
     async def _broadcast(self, presentation_id: UUID, payload: dict[str, Any]) -> None:
-        room = self._rooms.get(presentation_id)
-        if not room:
-            return
+        # Snapshot the room's connections under the lock so we don't race with
+        # concurrent join/leave while we iterate and send.
+        async with self._lock:
+            room = self._rooms.get(presentation_id)
+            if not room:
+                return
+            members = list(room.items())
         dead: list[str] = []
-        for connection_id, member in list(room.items()):
+        for connection_id, member in members:
             try:
                 await member.socket.send_json(payload)
             except Exception as exc:
                 logger.debug("ws send failed (%s); dropping connection", exc)
                 dead.append(connection_id)
-        for connection_id in dead:
-            room.pop(connection_id, None)
+        if not dead:
+            return
+        # Remove dead connections under the lock to avoid clobbering concurrent
+        # mutations of the room dict.
+        async with self._lock:
+            room = self._rooms.get(presentation_id)
+            if not room:
+                return
+            for connection_id in dead:
+                room.pop(connection_id, None)
+            if not room:
+                del self._rooms[presentation_id]
 
     async def notify_invalidate(self, presentation_id: UUID, reason: str) -> None:
         """Tell every other client viewing this deck to refetch."""
