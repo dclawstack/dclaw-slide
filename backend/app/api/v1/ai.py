@@ -340,6 +340,8 @@ async def generate_speaker_notes(
 
     presentation_repo = PresentationRepository(db)
     deck = await presentation_repo.get_with_slides(slide.presentation_id)
+    if deck is None:
+        raise HTTPException(status_code=404, detail="presentation not found")
     deck_context = (
         f"Deck title: {deck.title}. Theme: {deck.theme_id}. "
         f"Slide {slide.position + 1} of {len(deck.slides)}."
