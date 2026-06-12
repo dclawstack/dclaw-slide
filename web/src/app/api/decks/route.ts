@@ -4,6 +4,7 @@ import { db, hasDb, schema } from "@/lib/db";
 import { generateDeck, type GenEvent } from "@/lib/ai/generate";
 import { hasOpenRouter } from "@/lib/ai/openrouter";
 import { DEMO_DECK } from "@/lib/demo-deck";
+import { brandContextFor } from "@/lib/rag";
 import type { DeckJson } from "@/lib/deck/types";
 
 export const maxDuration = 300;
@@ -65,8 +66,9 @@ export async function POST(req: NextRequest) {
 
       send({ type: "created", deckId });
 
+      const brandContext = await brandContextFor(prompt).catch(() => "");
       const gen = hasOpenRouter()
-        ? generateDeck(prompt.trim())
+        ? generateDeck(prompt.trim(), brandContext)
         : demoGenerate();
 
       try {

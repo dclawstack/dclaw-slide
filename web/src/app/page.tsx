@@ -8,12 +8,14 @@ export default function Home() {
         <span className="font-bold tracking-tight">
           <span className="text-pink-500">DClaw</span> Slide
         </span>
-        <Link
-          href="/dashboard"
-          className="text-sm text-zinc-400 hover:text-zinc-200"
-        >
-          Dashboard →
-        </Link>
+        <nav className="flex items-center gap-5 text-sm">
+          <Link href="/brand" className="text-zinc-400 hover:text-zinc-200">
+            Brand library
+          </Link>
+          <Link href="/dashboard" className="text-zinc-400 hover:text-zinc-200">
+            Dashboard →
+          </Link>
+        </nav>
       </header>
 
       <main className="flex flex-col items-center gap-4 text-center max-w-3xl">

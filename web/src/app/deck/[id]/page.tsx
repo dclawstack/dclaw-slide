@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { DeckJsonSchema } from "@/lib/deck/types";
 import { SlideView } from "@/components/slide-view";
+import { ShareButton } from "@/components/share-button";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +36,15 @@ export default async function DeckPage({
       <div className="w-full max-w-3xl flex flex-col gap-8">
         <header className="flex items-center justify-between gap-4">
           <h1 className="text-2xl font-bold text-balance">{row.title}</h1>
-          <Link
-            href="/dashboard"
-            className="text-sm text-zinc-400 hover:text-zinc-200 shrink-0"
-          >
-            ← Dashboard
-          </Link>
+          <div className="flex items-center gap-3 shrink-0">
+            {row.status === "ready" && <ShareButton deckId={row.id} />}
+            <Link
+              href="/dashboard"
+              className="text-sm text-zinc-400 hover:text-zinc-200"
+            >
+              ← Dashboard
+            </Link>
+          </div>
         </header>
 
         {row.status === "generating" && (
