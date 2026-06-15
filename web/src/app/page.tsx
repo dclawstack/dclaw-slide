@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { SlideView } from "@/components/slide-view";
+import { DemoDataControls } from "@/components/demo-data-controls";
 import type { Slide, DeckJson } from "@/lib/deck/types";
 
 const HERO_SLIDE: Slide = {
@@ -28,6 +29,74 @@ const HERO_THEME: DeckJson["theme"] = {
   background: "dark",
   font: "sans",
 };
+
+const DIVE_BRAND: Slide = {
+  id: "dive-brand",
+  layout: "content",
+  blocks: [
+    { type: "heading", text: "On-brand, automatically" },
+    {
+      type: "bullets",
+      items: [
+        "Voice pulled from your past decks",
+        "Your numbers, your phrasing",
+        "Consistent across every deck",
+      ],
+    },
+  ],
+  speakerNotes: "",
+};
+const DIVE_PRESENT: Slide = {
+  id: "dive-present",
+  layout: "stats",
+  blocks: [
+    { type: "heading", text: "Present from the browser" },
+    { type: "stat", value: "←/→", label: "arrow nav" },
+    { type: "stat", value: "n", label: "notes panel" },
+    { type: "stat", value: "Esc", label: "exit" },
+  ],
+  speakerNotes: "",
+};
+
+const DEEP_DIVES: {
+  tag: string;
+  title: string;
+  body: string;
+  slide: Slide;
+  theme: DeckJson["theme"];
+  flip?: boolean;
+}[] = [
+  {
+    tag: "Consensus generation",
+    title: "Three models, one great deck",
+    body: "Two models draft outlines independently, a judge merges the best of each, and a designer model writes the slides — streamed in live, slide by slide. More reliable and less generic than a single prompt.",
+    slide: {
+      id: "dive-gen",
+      layout: "content",
+      blocks: [
+        { type: "heading", text: "Outline → Judge → Design" },
+        { type: "bullets", items: ["Draft (×2 models)", "Merge the best", "Design + stream"] },
+      ],
+      speakerNotes: "",
+    },
+    theme: { id: "slide-dark", accent: "#EC4899", background: "dark", font: "sans" },
+  },
+  {
+    tag: "Brand RAG",
+    title: "Decks that sound like you",
+    body: "Upload your past decks and notes to the brand library. Every new deck retrieves your voice, terminology and reusable content — so it reads like your team wrote it, not a chatbot.",
+    slide: DIVE_BRAND,
+    theme: { id: "pitch-classic", accent: "#EC4899", background: "light", font: "sans" },
+    flip: true,
+  },
+  {
+    tag: "Present & share",
+    title: "From draft to delivery",
+    body: "Switch themes in a click, edit any block inline, then present fullscreen or share a tokenized link with an optional password. Print-to-PDF for the inbox. Analytics on every view, present and share.",
+    slide: DIVE_PRESENT,
+    theme: { id: "pitch-bold", accent: "#FACC15", background: "dark", font: "sans" },
+  },
+];
 
 const FEATURES = [
   ["🧠", "Consensus generation", "Two models draft outlines, a judge merges them, a designer writes the slides. Better than one-shot prompting."],
@@ -100,6 +169,32 @@ export default function Landing() {
         <div className="lg:scale-105">
           <SlideView slide={HERO_SLIDE} theme={HERO_THEME} />
         </div>
+      </section>
+
+      {/* Demo data controls (removable — see src/demo/seed.ts) */}
+      <DemoDataControls />
+
+      {/* Feature deep-dives */}
+      <section className="mx-auto max-w-6xl px-6 py-12 flex flex-col gap-20">
+        {DEEP_DIVES.map((d) => (
+          <div
+            key={d.tag}
+            className={`grid gap-10 lg:grid-cols-2 lg:items-center ${
+              d.flip ? "lg:[&>*:first-child]:order-2" : ""
+            }`}
+          >
+            <div className="flex flex-col gap-4">
+              <span className="text-xs font-semibold uppercase tracking-wide text-pink-400">
+                {d.tag}
+              </span>
+              <h2 className="text-3xl font-bold tracking-tight text-balance">
+                {d.title}
+              </h2>
+              <p className="text-zinc-400 max-w-lg">{d.body}</p>
+            </div>
+            <SlideView slide={d.slide} theme={d.theme} />
+          </div>
+        ))}
       </section>
 
       {/* Features */}

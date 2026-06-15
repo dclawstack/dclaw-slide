@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { desc } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { generateDeck, type GenEvent } from "@/lib/ai/generate";
 import { hasOpenRouter } from "@/lib/ai/openrouter";
@@ -12,7 +12,11 @@ export const maxDuration = 300;
 type StreamEvent = GenEvent | { type: "created"; deckId: string | null };
 
 async function getDefaultWorkspaceId(): Promise<string> {
-  const existing = await db().query.workspaces.findFirst();
+  // Pin real decks to the "default" workspace so they're never swept up by
+  // demo seed/clear (which uses the "__demo__" workspace).
+  const existing = await db().query.workspaces.findFirst({
+    where: eq(schema.workspaces.name, "default"),
+  });
   if (existing) return existing.id;
   const [ws] = await db()
     .insert(schema.workspaces)
@@ -109,7 +113,6 @@ async function persistDeck(
   status: "ready" | "failed"
 ) {
   try {
-    const { eq } = await import("drizzle-orm");
     await db()
       .update(schema.decks)
       .set({
