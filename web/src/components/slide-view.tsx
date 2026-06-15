@@ -41,20 +41,46 @@ function Block({ block }: { block: SlideBlock }) {
           )}
         </blockquote>
       );
-    case "image":
-      return block.url ? (
+    case "image": {
+      // The designer emits an image *prompt*, not a URL. Synthesize a real
+      // picture from it (Pollinations: free, keyless, generated from text).
+      const src = block.url ?? imageUrl(block.prompt || block.alt);
+      return (
         // eslint-disable-next-line @next/next/no-img-element
         <img
-          src={block.url}
+          src={src}
           alt={block.alt}
-          className="rounded-lg max-h-48 object-cover"
+          loading="lazy"
+          className="rounded-lg w-full max-h-56 object-cover bg-zinc-800"
         />
-      ) : (
-        <div className="rounded-lg border border-dashed border-zinc-700 px-4 py-6 text-sm text-zinc-500">
-          🖼 {block.alt}
-        </div>
       );
+    }
   }
+}
+
+const STOPWORDS = new Set([
+  "a","an","the","of","for","and","with","showing","image","photo","picture",
+  "illustration","depicting","that","this","our","your","their","in","on","to",
+  "background","hero","slide","visual","graphic","concept","abstract",
+]);
+
+/** Real keyword-matched stock photo from a text prompt (no API key required). */
+function imageUrl(prompt: string): string {
+  const keywords = prompt
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w))
+    .slice(0, 3)
+    .join(",");
+  const lock = hashSeed(prompt);
+  return `https://loremflickr.com/768/432/${keywords || "business"}?lock=${lock}`;
+}
+
+function hashSeed(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+  return Math.abs(h) % 100000;
 }
 
 export function SlideView({ slide }: { slide: Slide }) {
