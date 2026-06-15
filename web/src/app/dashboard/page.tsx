@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,9 @@ export default async function Dashboard() {
           title: schema.decks.title,
           status: schema.decks.status,
           createdAt: schema.decks.createdAt,
+          views: sql<number>`(select count(*)::int from ${schema.deckEvents}
+            where ${schema.deckEvents.deckId} = ${schema.decks.id}
+            and ${schema.deckEvents.type} = 'view')`,
         })
         .from(schema.decks)
         .orderBy(desc(schema.decks.createdAt))
@@ -56,6 +59,7 @@ export default async function Dashboard() {
               >
                 <span className="font-medium">{deck.title}</span>
                 <span className="flex items-center gap-4 text-sm text-zinc-500">
+                  <span>👁 {deck.views}</span>
                   <span
                     className={
                       deck.status === "ready"

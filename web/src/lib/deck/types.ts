@@ -48,6 +48,7 @@ export const DeckJsonSchema = z.object({
   title: z.string(),
   theme: z
     .object({
+      id: z.string().optional(),
       accent: z.string().default("#EC4899"),
       background: z.enum(["light", "dark"]).default("dark"),
       font: z.enum(["sans", "serif"]).default("sans"),

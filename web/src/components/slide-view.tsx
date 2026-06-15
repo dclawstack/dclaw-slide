@@ -1,23 +1,37 @@
-import type { Slide, SlideBlock } from "@/lib/deck/types";
+import type { Slide, SlideBlock, DeckJson } from "@/lib/deck/types";
+import { resolveTheme, type ResolvedTheme } from "@/lib/deck/themes";
 
-function Block({ block }: { block: SlideBlock }) {
+function Block({ block, t }: { block: SlideBlock; t: ResolvedTheme }) {
   switch (block.type) {
     case "heading":
       return (
-        <h2 className="text-3xl font-bold tracking-tight text-balance">
+        <h2
+          className="text-3xl font-bold tracking-tight text-balance"
+          style={{ fontFamily: t.fontHeading }}
+        >
           {block.text}
         </h2>
       );
     case "subheading":
-      return <p className="text-lg text-zinc-400">{block.text}</p>;
+      return (
+        <p className="text-lg" style={{ color: t.muted }}>
+          {block.text}
+        </p>
+      );
     case "paragraph":
-      return <p className="text-base text-zinc-300 max-w-prose">{block.text}</p>;
+      return (
+        <p className="text-base max-w-prose" style={{ color: t.text }}>
+          {block.text}
+        </p>
+      );
     case "bullets":
       return (
         <ul className="space-y-2 text-left">
           {block.items.map((item, i) => (
-            <li key={i} className="flex gap-3 text-zinc-200">
-              <span className="text-pink-500 shrink-0">▸</span>
+            <li key={i} className="flex gap-3" style={{ color: t.text }}>
+              <span className="shrink-0" style={{ color: t.accent }}>
+                ▸
+              </span>
               <span>{item}</span>
             </li>
           ))}
@@ -25,25 +39,36 @@ function Block({ block }: { block: SlideBlock }) {
       );
     case "stat":
       return (
-        <div className="rounded-xl bg-zinc-800/60 px-5 py-4 text-center">
-          <div className="text-3xl font-bold text-pink-400">{block.value}</div>
-          <div className="text-sm text-zinc-400 mt-1">{block.label}</div>
+        <div
+          className="rounded-xl px-5 py-4 text-center"
+          style={{ backgroundColor: t.surface }}
+        >
+          <div className="text-3xl font-bold" style={{ color: t.accent }}>
+            {block.value}
+          </div>
+          <div className="text-sm mt-1" style={{ color: t.muted }}>
+            {block.label}
+          </div>
         </div>
       );
     case "quote":
       return (
-        <blockquote className="text-xl italic text-zinc-200 max-w-prose">
+        <blockquote
+          className="text-xl italic max-w-prose"
+          style={{ color: t.text }}
+        >
           “{block.text}”
           {block.attribution && (
-            <footer className="text-sm text-zinc-500 mt-2 not-italic">
+            <footer
+              className="text-sm mt-2 not-italic"
+              style={{ color: t.muted }}
+            >
               — {block.attribution}
             </footer>
           )}
         </blockquote>
       );
     case "image": {
-      // The designer emits an image *prompt*, not a URL. Synthesize a real
-      // picture from it (Pollinations: free, keyless, generated from text).
       const src = block.url ?? imageUrl(block.prompt || block.alt);
       return (
         // eslint-disable-next-line @next/next/no-img-element
@@ -51,7 +76,8 @@ function Block({ block }: { block: SlideBlock }) {
           src={src}
           alt={block.alt}
           loading="lazy"
-          className="rounded-lg w-full max-h-56 object-cover bg-zinc-800"
+          className="rounded-lg w-full max-h-56 object-cover"
+          style={{ backgroundColor: t.surface }}
         />
       );
     }
@@ -64,7 +90,7 @@ const STOPWORDS = new Set([
   "background","hero","slide","visual","graphic","concept","abstract",
 ]);
 
-/** Real keyword-matched stock photo from a text prompt (no API key required). */
+/** Keyword-matched stock photo fallback for decks without AI images. */
 function imageUrl(prompt: string): string {
   const keywords = prompt
     .toLowerCase()
@@ -83,7 +109,14 @@ function hashSeed(s: string): number {
   return Math.abs(h) % 100000;
 }
 
-export function SlideView({ slide }: { slide: Slide }) {
+export function SlideView({
+  slide,
+  theme,
+}: {
+  slide: Slide;
+  theme?: DeckJson["theme"];
+}) {
+  const t = resolveTheme(theme);
   const stats = slide.blocks.filter((b) => b.type === "stat");
   const rest = slide.blocks.filter((b) => b.type !== "stat");
   const centered =
@@ -94,17 +127,23 @@ export function SlideView({ slide }: { slide: Slide }) {
 
   return (
     <div
-      className={`aspect-video w-full rounded-2xl border border-zinc-800 bg-zinc-900 p-10 flex flex-col gap-5 overflow-hidden ${
+      className={`aspect-video w-full rounded-2xl border p-10 flex flex-col gap-5 overflow-hidden ${
         centered ? "items-center justify-center text-center" : "justify-center"
       }`}
+      style={{
+        backgroundColor: t.bg,
+        color: t.text,
+        borderColor: t.border,
+        fontFamily: t.fontBody,
+      }}
     >
       {rest.map((block, i) => (
-        <Block key={i} block={block} />
+        <Block key={i} block={block} t={t} />
       ))}
       {stats.length > 0 && (
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mt-2">
           {stats.map((block, i) => (
-            <Block key={i} block={block} />
+            <Block key={i} block={block} t={t} />
           ))}
         </div>
       )}

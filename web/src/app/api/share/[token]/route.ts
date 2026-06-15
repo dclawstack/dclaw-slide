@@ -32,6 +32,10 @@ export async function GET(
   }
   const payload = await loadDeck(link.deckId);
   if (!payload) return Response.json({ error: "not found" }, { status: 404 });
+  await db()
+    .insert(schema.deckEvents)
+    .values({ deckId: link.deckId, type: "share_view" })
+    .catch(() => {});
   return Response.json(payload);
 }
 
@@ -55,5 +59,9 @@ export async function POST(
   }
   const payload = await loadDeck(link.deckId);
   if (!payload) return Response.json({ error: "not found" }, { status: 404 });
+  await db()
+    .insert(schema.deckEvents)
+    .values({ deckId: link.deckId, type: "share_view" })
+    .catch(() => {});
   return Response.json(payload);
 }

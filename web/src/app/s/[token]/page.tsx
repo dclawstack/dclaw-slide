@@ -104,7 +104,7 @@ export default function SharedDeck({
         <div className="flex flex-col gap-6 print:gap-0">
           {state.deck.slides.map((slide) => (
             <div key={slide.id} className="print:break-after-page">
-              <SlideView slide={slide} />
+              <SlideView slide={slide} theme={state.deck.theme} />
             </div>
           ))}
         </div>

@@ -78,6 +78,22 @@ export const shareLinks = pgTable("share_links", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+export const deckEvents = pgTable(
+  "deck_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deckId: uuid("deck_id")
+      .notNull()
+      .references(() => decks.id, { onDelete: "cascade" }),
+    type: text("type", {
+      enum: ["view", "present", "share_view", "edit"],
+    }).notNull(),
+    sessionId: text("session_id"),
+    ts: timestamp("ts").notNull().defaultNow(),
+  },
+  (t) => [index("deck_events_deck_idx").on(t.deckId)]
+);
+
 // ---------- Build/roadmap tracking (the agent's own progress ledger) ----------
 
 export const roadmapItems = pgTable("roadmap_items", {
