@@ -1,4 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS vector;
 CREATE TABLE "brand_chunks" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"workspace_id" uuid NOT NULL,

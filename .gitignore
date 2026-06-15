@@ -26,3 +26,7 @@ node_modules/
 .next/
 out/
 BUILD-INPUTS.md
+web/.env.local
+.openrouter.key
+.neon.key
+.database.url
