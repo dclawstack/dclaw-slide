@@ -8,6 +8,7 @@ import {
 } from "@/lib/deck/types";
 import { chat, chatStream, extractJson, type ChatUsage } from "./openrouter";
 import { MODELS } from "./models";
+import { generateImage, MAX_IMAGES_PER_DECK } from "./images";
 
 export type GenEvent =
   | { type: "status"; message: string }
@@ -137,10 +138,37 @@ export async function* generateDeck(
 
     if (slides.length === 0) throw new Error("Designer produced no slides");
 
+    // Generate a real, relevant image per image-block, in parallel.
+    const accent = "#EC4899";
+    const imageTargets: { slide: number; block: number; prompt: string }[] = [];
+    slides.forEach((s, si) =>
+      s.blocks.forEach((b, bi) => {
+        if (b.type === "image") {
+          imageTargets.push({ slide: si, block: bi, prompt: b.prompt || b.alt });
+        }
+      })
+    );
+    const capped = imageTargets.slice(0, MAX_IMAGES_PER_DECK);
+    if (capped.length > 0) {
+      yield {
+        type: "status",
+        message: `Generating ${capped.length} image${capped.length > 1 ? "s" : ""}…`,
+      };
+      const results = await Promise.all(
+        capped.map((t) => generateImage(t.prompt, accent))
+      );
+      results.forEach((r, i) => {
+        const t = capped[i];
+        const block = slides[t.slide].blocks[t.block];
+        if (block.type === "image" && r.dataUrl) block.url = r.dataUrl;
+        if (r.cost) usage[`image:${i}`] = { promptTokens: 0, completionTokens: 0, cost: r.cost };
+      });
+    }
+
     const deck = DeckJsonSchema.parse({
       version: 1,
       title: outline.title,
-      theme: { accent: "#EC4899", background: "dark", font: "sans" },
+      theme: { accent, background: "dark", font: "sans" },
       slides,
     });
     yield {

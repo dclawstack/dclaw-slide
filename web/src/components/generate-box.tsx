@@ -63,6 +63,7 @@ export function GenerateBox() {
               break;
             case "done":
               setTitle(event.deck.title);
+              setSlides(event.deck.slides); // final deck carries generated images
               setPhase("done");
               setStatus("Deck ready");
               break;
