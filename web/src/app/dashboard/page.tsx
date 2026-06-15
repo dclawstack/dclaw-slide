@@ -27,7 +27,7 @@ export default async function Dashboard() {
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Your decks</h1>
           <Link
-            href="/"
+            href="/new"
             className="rounded-xl bg-pink-600 px-4 py-2 text-sm font-semibold text-white hover:bg-pink-500"
           >
             + New deck
@@ -44,7 +44,7 @@ export default async function Dashboard() {
         {hasDb() && decks.length === 0 && (
           <p className="text-zinc-500 text-sm">
             No decks yet.{" "}
-            <Link href="/" className="text-pink-400 hover:text-pink-300">
+            <Link href="/new" className="text-pink-400 hover:text-pink-300">
               Generate your first one →
             </Link>
           </p>
