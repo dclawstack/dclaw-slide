@@ -1,18 +1,21 @@
 import { NextRequest } from "next/server";
+import { count, eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
+import { limitsFor } from "@/lib/plans";
 import { extractPptxSlides, chunkText } from "@/lib/ingest/pptx";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
+import { requireAuth } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
 
 export const maxDuration = 120;
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
-  if (!hasDb()) {
-    return Response.json(
-      { error: "database not connected yet (NEON_API_KEY pending)" },
-      { status: 503 }
-    );
-  }
+  const limited = checkRateLimit(req, "ingest", { limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -47,16 +50,30 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "no text found in file" }, { status: 422 });
   }
 
-  const workspace =
-    (await db().query.workspaces.findFirst()) ??
-    (
-      await db().insert(schema.workspaces).values({ name: "default" }).returning()
-    )[0];
+  // Plan gate on brand-library size.
+  const workspace = await db().query.workspaces.findFirst({
+    where: (w, { eq }) => eq(w.id, auth.workspaceId),
+    columns: { plan: true },
+  });
+  const [fileCount] = await db()
+    .select({ count: count() })
+    .from(schema.ingestedFiles)
+    .where(eq(schema.ingestedFiles.workspaceId, auth.workspaceId));
+  const limits = limitsFor(workspace?.plan ?? "free");
+  if (fileCount.count >= limits.maxBrandFiles) {
+    return Response.json(
+      {
+        error: `brand file limit reached (${limits.maxBrandFiles} on the ${workspace?.plan ?? "free"} plan)`,
+        limit: "maxBrandFiles",
+      },
+      { status: 402 }
+    );
+  }
 
   const [ingested] = await db()
     .insert(schema.ingestedFiles)
     .values({
-      workspaceId: workspace.id,
+      workspaceId: auth.workspaceId,
       filename: file.name,
       kind,
       slideCount: kind === "pptx" ? chunks.length : null,
@@ -69,18 +86,30 @@ export async function POST(req: NextRequest) {
     .insert(schema.brandChunks)
     .values(
       chunks.map((content) => ({
-        workspaceId: workspace.id,
+        workspaceId: auth.workspaceId,
         fileId: ingested.id,
         content,
       }))
     );
 
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "brand.ingest",
+    targetType: "file",
+    targetId: ingested.id,
+    meta: { filename: file.name, kind, chunks: chunks.length },
+    ip: clientIp(req),
+  });
   return Response.json({ fileId: ingested.id, chunks: chunks.length, kind });
 }
 
 export async function GET() {
   if (!hasDb()) return Response.json({ files: [], db: false });
+  const auth = await requireAuth();
+  if (auth instanceof Response) return auth;
   const files = await db().query.ingestedFiles.findMany({
+    where: (f, { eq }) => eq(f.workspaceId, auth.workspaceId),
     orderBy: (f, { desc }) => [desc(f.createdAt)],
     limit: 50,
   });

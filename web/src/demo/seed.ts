@@ -8,66 +8,72 @@
  *    3. Delete the control component:  src/components/demo-data-controls.tsx
  *    4. Remove <DemoDataControls/> + its import from src/app/page.tsx
  *
- *  All demo records live in a workspace named "__demo__", so clearing is a
- *  single cascade delete that never touches real user data (which lives in
- *  the "default" workspace).
+ *  Demo records are seeded into the caller's own workspace and tagged
+ *  (decks via generationMeta.demo, files via a "[demo] " filename prefix),
+ *  so clearing removes exactly what seeding created and never touches
+ *  real user data.
  * ─────────────────────────────────────────────────────────────────────────
  */
-import { eq } from "drizzle-orm";
+import { and, eq, like, sql } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import type { DeckJson } from "@/lib/deck/types";
 import { DEMO_DECKS } from "./decks";
 
-export const DEMO_WORKSPACE = "__demo__";
+const DEMO_FILE_PREFIX = "[demo] ";
+const demoDeckFilter = (workspaceId: string) =>
+  and(
+    eq(schema.decks.workspaceId, workspaceId),
+    sql`${schema.decks.generationMeta}->>'demo' = 'true'`
+  );
 
 export interface DemoStatus {
   seeded: boolean;
   decks: number;
 }
 
-async function findDemoWorkspace() {
-  return db().query.workspaces.findFirst({
-    where: eq(schema.workspaces.name, DEMO_WORKSPACE),
-  });
-}
-
-export async function demoStatus(): Promise<DemoStatus> {
+export async function demoStatus(workspaceId: string): Promise<DemoStatus> {
   if (!hasDb()) return { seeded: false, decks: 0 };
-  const ws = await findDemoWorkspace();
-  if (!ws) return { seeded: false, decks: 0 };
   const rows = await db()
     .select({ id: schema.decks.id })
     .from(schema.decks)
-    .where(eq(schema.decks.workspaceId, ws.id));
+    .where(demoDeckFilter(workspaceId));
   return { seeded: rows.length > 0, decks: rows.length };
 }
 
-export async function clearDemo(): Promise<{ removed: boolean }> {
+export async function clearDemo(
+  workspaceId: string
+): Promise<{ removed: boolean }> {
   if (!hasDb()) return { removed: false };
-  const ws = await findDemoWorkspace();
-  if (!ws) return { removed: false };
-  // Cascades to decks → deck_events, ingested_files → brand_chunks, share_links.
-  await db().delete(schema.workspaces).where(eq(schema.workspaces.id, ws.id));
-  return { removed: true };
+  // Deck deletes cascade to deck_events and share_links; file deletes
+  // cascade to brand_chunks.
+  const removedDecks = await db()
+    .delete(schema.decks)
+    .where(demoDeckFilter(workspaceId))
+    .returning({ id: schema.decks.id });
+  const removedFiles = await db()
+    .delete(schema.ingestedFiles)
+    .where(
+      and(
+        eq(schema.ingestedFiles.workspaceId, workspaceId),
+        like(schema.ingestedFiles.filename, `${DEMO_FILE_PREFIX}%`)
+      )
+    )
+    .returning({ id: schema.ingestedFiles.id });
+  return { removed: removedDecks.length > 0 || removedFiles.length > 0 };
 }
 
-export async function seedDemo(): Promise<DemoStatus> {
+export async function seedDemo(workspaceId: string): Promise<DemoStatus> {
   if (!hasDb()) return { seeded: false, decks: 0 };
 
   // Idempotent: wipe any prior demo data first.
-  await clearDemo();
-
-  const [ws] = await db()
-    .insert(schema.workspaces)
-    .values({ name: DEMO_WORKSPACE })
-    .returning();
+  await clearDemo(workspaceId);
 
   // Brand library content so retrieval has something to find.
   const [file] = await db()
     .insert(schema.ingestedFiles)
     .values({
-      workspaceId: ws.id,
-      filename: "brand-voice-guide.md",
+      workspaceId,
+      filename: `${DEMO_FILE_PREFIX}brand-voice-guide.md`,
       kind: "markdown",
       slideCount: null,
     })
@@ -76,7 +82,7 @@ export async function seedDemo(): Promise<DemoStatus> {
     .insert(schema.brandChunks)
     .values(
       BRAND_CHUNKS.map((content) => ({
-        workspaceId: ws.id,
+        workspaceId,
         fileId: file.id,
         content,
       }))
@@ -87,7 +93,7 @@ export async function seedDemo(): Promise<DemoStatus> {
     const [deck] = await db()
       .insert(schema.decks)
       .values({
-        workspaceId: ws.id,
+        workspaceId,
         title: demo.deck.title,
         status: "ready",
         sourcePrompt: demo.prompt,
@@ -107,7 +113,7 @@ export async function seedDemo(): Promise<DemoStatus> {
     if (events.length) await db().insert(schema.deckEvents).values(events);
   }
 
-  return demoStatus();
+  return demoStatus(workspaceId);
 }
 
 const BRAND_CHUNKS = [

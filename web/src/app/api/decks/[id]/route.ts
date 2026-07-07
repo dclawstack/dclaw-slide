@@ -1,16 +1,24 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
-import { db, hasDb, schema } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { DeckJsonSchema } from "@/lib/deck/types";
+import { requireAuth } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
+import { clientIp } from "@/lib/rate-limit";
+import { logger, errField } from "@/lib/logger";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!hasDb()) return Response.json({ error: "no database" }, { status: 503 });
+  const auth = await requireAuth();
+  if (auth instanceof Response) return auth;
   const { id } = await params;
   const deck = await db().query.decks.findFirst({
-    where: eq(schema.decks.id, id),
+    where: and(
+      eq(schema.decks.id, id),
+      eq(schema.decks.workspaceId, auth.workspaceId)
+    ),
   });
   if (!deck) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json(deck);
@@ -21,7 +29,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!hasDb()) return Response.json({ error: "no database" }, { status: 503 });
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
   const { id } = await params;
   const body = await req.json().catch(() => null);
   if (!body) return Response.json({ error: "bad body" }, { status: 400 });
@@ -45,7 +54,9 @@ export async function PATCH(
   const [row] = await db()
     .update(schema.decks)
     .set(update)
-    .where(eq(schema.decks.id, id))
+    .where(
+      and(eq(schema.decks.id, id), eq(schema.decks.workspaceId, auth.workspaceId))
+    )
     .returning({ id: schema.decks.id });
   if (!row) return Response.json({ error: "not found" }, { status: 404 });
 
@@ -53,7 +64,45 @@ export async function PATCH(
     await db()
       .insert(schema.deckEvents)
       .values({ deckId: id, type: "edit" })
-      .catch(() => {});
+      .catch((err) => logger.warn("edit event insert failed", errField(err)));
   }
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "deck.update",
+    targetType: "deck",
+    targetId: id,
+    meta: { fields: Object.keys(update).filter((k) => k !== "updatedAt") },
+    ip: clientIp(req),
+  });
+  return Response.json({ ok: true });
+}
+
+/** Delete a deck (cascades to events and share links). Editor+. */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
+  const { id } = await params;
+
+  const [row] = await db()
+    .delete(schema.decks)
+    .where(
+      and(eq(schema.decks.id, id), eq(schema.decks.workspaceId, auth.workspaceId))
+    )
+    .returning({ id: schema.decks.id, title: schema.decks.title });
+  if (!row) return Response.json({ error: "not found" }, { status: 404 });
+
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "deck.delete",
+    targetType: "deck",
+    targetId: id,
+    meta: { title: row.title },
+    ip: clientIp(req),
+  });
   return Response.json({ ok: true });
 }
