@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { verifyPassword } from "@/lib/share";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 async function loadLink(token: string) {
   return db().query.shareLinks.findFirst({
@@ -43,6 +44,12 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  // Throttle password attempts on protected share links.
+  const limited = checkRateLimit(req, "share-unlock", {
+    limit: 10,
+    windowMs: 60_000,
+  });
+  if (limited) return limited;
   if (!hasDb()) {
     return Response.json({ error: "database not connected" }, { status: 503 });
   }

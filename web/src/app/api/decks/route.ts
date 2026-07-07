@@ -5,9 +5,13 @@ import { generateDeck, type GenEvent } from "@/lib/ai/generate";
 import { hasOpenRouter } from "@/lib/ai/openrouter";
 import { DEMO_DECK } from "@/lib/demo-deck";
 import { brandContextFor } from "@/lib/rag";
+import { checkRateLimit } from "@/lib/rate-limit";
 import type { DeckJson } from "@/lib/deck/types";
 
 export const maxDuration = 300;
+
+// Generation invokes paid models — keep this tight.
+const GEN_LIMIT = { limit: 5, windowMs: 60_000 };
 
 type StreamEvent = GenEvent | { type: "created"; deckId: string | null };
 
@@ -47,6 +51,9 @@ async function* demoGenerate(): AsyncGenerator<GenEvent> {
 }
 
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, "deck-gen", GEN_LIMIT);
+  if (limited) return limited;
+
   const { prompt } = await req.json().catch(() => ({ prompt: "" }));
   if (typeof prompt !== "string" || prompt.trim().length < 3) {
     return Response.json({ error: "prompt is required" }, { status: 400 });

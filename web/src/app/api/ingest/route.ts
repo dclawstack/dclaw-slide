@@ -1,12 +1,15 @@
 import { NextRequest } from "next/server";
 import { db, hasDb, schema } from "@/lib/db";
 import { extractPptxSlides, chunkText } from "@/lib/ingest/pptx";
+import { checkRateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 120;
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export async function POST(req: NextRequest) {
+  const limited = checkRateLimit(req, "ingest", { limit: 10, windowMs: 60_000 });
+  if (limited) return limited;
   if (!hasDb()) {
     return Response.json(
       { error: "database not connected yet (NEON_API_KEY pending)" },
