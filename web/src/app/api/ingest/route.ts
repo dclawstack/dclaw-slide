@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
+import { count, eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
+import { limitsFor } from "@/lib/plans";
 import { extractPptxSlides, chunkText } from "@/lib/ingest/pptx";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { requireAuth } from "@/lib/auth/session";
@@ -46,6 +48,26 @@ export async function POST(req: NextRequest) {
 
   if (chunks.length === 0) {
     return Response.json({ error: "no text found in file" }, { status: 422 });
+  }
+
+  // Plan gate on brand-library size.
+  const workspace = await db().query.workspaces.findFirst({
+    where: (w, { eq }) => eq(w.id, auth.workspaceId),
+    columns: { plan: true },
+  });
+  const [fileCount] = await db()
+    .select({ count: count() })
+    .from(schema.ingestedFiles)
+    .where(eq(schema.ingestedFiles.workspaceId, auth.workspaceId));
+  const limits = limitsFor(workspace?.plan ?? "free");
+  if (fileCount.count >= limits.maxBrandFiles) {
+    return Response.json(
+      {
+        error: `brand file limit reached (${limits.maxBrandFiles} on the ${workspace?.plan ?? "free"} plan)`,
+        limit: "maxBrandFiles",
+      },
+      { status: 402 }
+    );
   }
 
   const [ingested] = await db()

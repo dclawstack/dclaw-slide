@@ -23,7 +23,8 @@ interface WorkspaceInfo {
   plan: string;
   members: number;
   role: string;
-  limits: { generationsPerMonth: number; maxMembers: number };
+  limits: { generationsPerMonth: number; maxMembers: number; aiBudgetUsdPerMonth: number };
+  usage: { generations: number; costUsd: number };
 }
 
 const ROLES = ["viewer", "editor", "admin", "owner"] as const;
@@ -111,9 +112,13 @@ export function WorkspaceSettings() {
           <h2 className="text-lg font-semibold">{info.name}</h2>
           <p className="text-zinc-400">
             Plan: <span className="text-zinc-200 uppercase">{info.plan}</span> ·{" "}
-            {info.members}/{info.limits.maxMembers} members ·{" "}
-            {info.limits.generationsPerMonth} generations/month · your role:{" "}
+            {info.members}/{info.limits.maxMembers} members · your role:{" "}
             <span className="text-zinc-200">{info.role}</span>
+          </p>
+          <p className="text-zinc-400">
+            This month: {info.usage.generations}/{info.limits.generationsPerMonth}{" "}
+            generations · ${info.usage.costUsd.toFixed(2)}/$
+            {info.limits.aiBudgetUsdPerMonth} AI spend
           </p>
         </section>
 

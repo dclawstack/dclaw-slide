@@ -5,6 +5,7 @@ import { requireAuth } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { clientIp } from "@/lib/rate-limit";
 import { limitsFor } from "@/lib/plans";
+import { monthlyUsage } from "@/lib/usage";
 
 export async function GET() {
   const auth = await requireAuth();
@@ -16,16 +17,20 @@ export async function GET() {
     .where(eq(schema.workspaces.id, auth.workspaceId));
   if (!workspace) return Response.json({ error: "not found" }, { status: 404 });
 
-  const [members] = await db()
-    .select({ count: count() })
-    .from(schema.memberships)
-    .where(eq(schema.memberships.workspaceId, auth.workspaceId));
+  const [[members], usage] = await Promise.all([
+    db()
+      .select({ count: count() })
+      .from(schema.memberships)
+      .where(eq(schema.memberships.workspaceId, auth.workspaceId)),
+    monthlyUsage(auth.workspaceId),
+  ]);
 
   return Response.json({
     id: workspace.id,
     name: workspace.name,
     plan: workspace.plan,
     limits: limitsFor(workspace.plan),
+    usage,
     members: members.count,
     role: auth.role,
   });

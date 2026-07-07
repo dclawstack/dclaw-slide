@@ -7,6 +7,7 @@ import { DEMO_DECK } from "@/lib/demo-deck";
 import { brandContextFor } from "@/lib/rag";
 import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAuth } from "@/lib/auth/session";
+import { checkGenerationAllowance, recordGeneration } from "@/lib/usage";
 import type { DeckJson } from "@/lib/deck/types";
 
 export const maxDuration = 300;
@@ -48,6 +49,8 @@ export async function POST(req: NextRequest) {
     const auth = await requireAuth("editor");
     if (auth instanceof Response) return auth;
     workspaceId = auth.workspaceId;
+    const overLimit = await checkGenerationAllowance(workspaceId);
+    if (overLimit) return overLimit;
   }
 
   const { prompt } = await req.json().catch(() => ({ prompt: "" }));
@@ -84,6 +87,9 @@ export async function POST(req: NextRequest) {
           send(event);
           if (deckId && event.type === "done") {
             await persistDeck(deckId, event.deck, event.meta, "ready");
+            if (workspaceId) {
+              await recordGeneration(workspaceId, deckId, event.meta);
+            }
           }
           if (deckId && event.type === "error") {
             await persistDeck(deckId, null, null, "failed");
