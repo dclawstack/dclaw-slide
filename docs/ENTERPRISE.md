@@ -25,25 +25,38 @@ Last updated: 2026-07-07 (enterprise hardening, Phases 0–3).
    transcripts — treat it as burned. Create a new key at
    https://openrouter.ai/settings/keys (set a spend limit), update the
    Vercel env var, delete `.openrouter.key`.
-2. **Set Vercel env vars** for production: `DATABASE_URL`,
-   `OPENROUTER_API_KEY`. Without `DATABASE_URL` the deployed app runs in
-   open keyless demo mode — auth only activates with a database.
-3. **Merge & deploy**: review the `feat/enterprise-hardening` branch, merge
-   to `main` (auto-deploys). Migrations 0002/0003 apply at build via
+2. **Vercel env vars**: production already has `DATABASE_URL` (Neon-Vercel
+   integration) and `OPENROUTER_API_KEY` — replace the latter with the
+   rotated key. Auth activates automatically because the DB is configured.
+3. **Push & deploy**: main (local) already contains the merge; review and
+   `git push`. Migrations 0002/0003 apply at build via
    `scripts/db-setup.mjs`.
-4. **Neon backups**: enable point-in-time restore on the Neon project and
+4. **Claim the pre-auth decks.** Decks generated before auth live in the
+   legacy `default` workspace, which no user owns. After signing up in
+   production, attach yourself to it (Neon SQL console):
+
+   ```sql
+   INSERT INTO memberships (user_id, workspace_id, role)
+   SELECT u.id, w.id, 'owner'
+   FROM users u, workspaces w
+   WHERE u.email = 'tharunidayara@gmail.com' AND w.name = 'default';
+   ```
+
+   Then switch to it in Settings → Workspace (the switcher appears once
+   you belong to more than one workspace).
+5. **Neon backups**: enable point-in-time restore on the Neon project and
    do one test restore to a branch. Document your RPO/RTO.
-5. **Stripe** (when billing goes live): create products for `pro` /
+6. **Stripe** (when billing goes live): create products for `pro` /
    `enterprise`, wire checkout + a webhook that calls the plan change
    path (`workspaces.plan`); then restrict `/api/workspace/plan` to the
    webhook. Until then it is owner-gated and audited.
-6. **SSO/SAML/SCIM** (when an enterprise customer asks): front the
+7. **SSO/SAML/SCIM** (when an enterprise customer asks): front the
    credentials login with WorkOS or Clerk; the session layer
    (`lib/auth/session.ts`) is provider-agnostic — swap `createSession`
    callers only.
-7. **Error tracking vendor** (optional): add `@sentry/nextjs`, initialize
+8. **Error tracking vendor** (optional): add `@sentry/nextjs`, initialize
    in `src/instrumentation.ts` `register()` behind `SENTRY_DSN`.
-8. **Rate limiting at scale**: current limiter is per-instance; when
+9. **Rate limiting at scale**: current limiter is per-instance; when
    traffic justifies it, swap `lib/rate-limit.ts` internals for Upstash
    Ratelimit (call sites unchanged) or enable Vercel WAF rules.
 

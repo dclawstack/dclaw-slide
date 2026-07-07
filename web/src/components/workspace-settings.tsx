@@ -32,6 +32,9 @@ const ROLES = ["viewer", "editor", "admin", "owner"] as const;
 export function WorkspaceSettings() {
   const router = useRouter();
   const [me, setMe] = useState<{ id: string } | null>(null);
+  const [workspaces, setWorkspaces] = useState<
+    { id: string; name: string; role: string }[]
+  >([]);
   const [info, setInfo] = useState<WorkspaceInfo | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [invitesList, setInvitesList] = useState<Invite[]>([]);
@@ -52,6 +55,7 @@ export function WorkspaceSettings() {
     }
     const meData = await meRes.json();
     setMe(meData.user);
+    setWorkspaces(meData.workspaces ?? []);
     if (infoRes.ok) {
       const i = await infoRes.json();
       setInfo(i);
@@ -107,6 +111,31 @@ export function WorkspaceSettings() {
             ← Dashboard
           </Link>
         </header>
+
+        {workspaces.length > 1 && (
+          <section className="flex items-center gap-2 text-sm">
+            <span className="text-zinc-400">Workspace:</span>
+            <select
+              value={info.id}
+              onChange={(e) =>
+                act(() =>
+                  fetch("/api/auth/workspace", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ workspaceId: e.target.value }),
+                  })
+                ).then(() => router.refresh())
+              }
+              className="rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1"
+            >
+              {workspaces.map((w) => (
+                <option key={w.id} value={w.id}>
+                  {w.name} ({w.role})
+                </option>
+              ))}
+            </select>
+          </section>
+        )}
 
         <section className="flex flex-col gap-2 text-sm">
           <h2 className="text-lg font-semibold">{info.name}</h2>
