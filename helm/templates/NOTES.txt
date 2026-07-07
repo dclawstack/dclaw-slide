@@ -1,4 +1,0 @@
-DClaw App deployed!
-
-Backend: {{ include "dclaw-slide.fullname" . }}-backend
-Frontend: {{ include "dclaw-slide.fullname" . }}-frontend
