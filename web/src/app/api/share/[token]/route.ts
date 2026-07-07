@@ -5,9 +5,13 @@ import { verifyPassword } from "@/lib/share";
 import { checkRateLimit } from "@/lib/rate-limit";
 
 async function loadLink(token: string) {
-  return db().query.shareLinks.findFirst({
+  const link = await db().query.shareLinks.findFirst({
     where: eq(schema.shareLinks.token, token),
   });
+  if (link?.expiresAt && link.expiresAt.getTime() < Date.now()) {
+    return { expired: true as const, link };
+  }
+  return link ? { expired: false as const, link } : null;
 }
 
 async function loadDeck(deckId: string) {
@@ -26,8 +30,12 @@ export async function GET(
     return Response.json({ error: "database not connected" }, { status: 503 });
   }
   const { token } = await params;
-  const link = await loadLink(token);
-  if (!link) return Response.json({ error: "not found" }, { status: 404 });
+  const result = await loadLink(token);
+  if (!result) return Response.json({ error: "not found" }, { status: 404 });
+  if (result.expired) {
+    return Response.json({ error: "this link has expired" }, { status: 410 });
+  }
+  const { link } = result;
   if (link.passwordHash) {
     return Response.json({ passwordRequired: true }, { status: 401 });
   }
@@ -54,8 +62,12 @@ export async function POST(
     return Response.json({ error: "database not connected" }, { status: 503 });
   }
   const { token } = await params;
-  const link = await loadLink(token);
-  if (!link) return Response.json({ error: "not found" }, { status: 404 });
+  const result = await loadLink(token);
+  if (!result) return Response.json({ error: "not found" }, { status: 404 });
+  if (result.expired) {
+    return Response.json({ error: "this link has expired" }, { status: 410 });
+  }
+  const { link } = result;
 
   const { password } = await req.json().catch(() => ({ password: "" }));
   if (

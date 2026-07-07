@@ -3,6 +3,8 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { DeckJsonSchema } from "@/lib/deck/types";
 import { requireAuth } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
+import { clientIp } from "@/lib/rate-limit";
 
 export async function GET(
   _req: NextRequest,
@@ -63,5 +65,43 @@ export async function PATCH(
       .values({ deckId: id, type: "edit" })
       .catch(() => {});
   }
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "deck.update",
+    targetType: "deck",
+    targetId: id,
+    meta: { fields: Object.keys(update).filter((k) => k !== "updatedAt") },
+    ip: clientIp(req),
+  });
+  return Response.json({ ok: true });
+}
+
+/** Delete a deck (cascades to events and share links). Editor+. */
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
+  const { id } = await params;
+
+  const [row] = await db()
+    .delete(schema.decks)
+    .where(
+      and(eq(schema.decks.id, id), eq(schema.decks.workspaceId, auth.workspaceId))
+    )
+    .returning({ id: schema.decks.id, title: schema.decks.title });
+  if (!row) return Response.json({ error: "not found" }, { status: 404 });
+
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "deck.delete",
+    targetType: "deck",
+    targetId: id,
+    meta: { title: row.title },
+    ip: clientIp(req),
+  });
   return Response.json({ ok: true });
 }

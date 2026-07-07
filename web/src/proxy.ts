@@ -9,7 +9,7 @@ import { NextResponse, type NextRequest } from "next/server";
  * stays open.
  */
 
-const PROTECTED = [/^\/dashboard/, /^\/new/, /^\/deck\//, /^\/brand/];
+const PROTECTED = [/^\/dashboard/, /^\/new/, /^\/deck\//, /^\/brand/, /^\/settings/];
 const AUTH_PAGES = [/^\/login$/, /^\/signup$/];
 
 export function proxy(request: NextRequest) {

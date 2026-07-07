@@ -19,7 +19,11 @@ export function AuthForm({ mode }: { mode: "login" | "signup" }) {
       email: String(form.get("email") ?? ""),
       password: String(form.get("password") ?? ""),
     };
-    if (mode === "signup") body.name = String(form.get("name") ?? "");
+    if (mode === "signup") {
+      body.name = String(form.get("name") ?? "");
+      const invite = search.get("invite");
+      if (invite) body.inviteToken = invite;
+    }
 
     const res = await fetch(`/api/auth/${mode}`, {
       method: "POST",

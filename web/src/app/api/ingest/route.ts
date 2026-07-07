@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
 import { db, hasDb, schema } from "@/lib/db";
 import { extractPptxSlides, chunkText } from "@/lib/ingest/pptx";
-import { checkRateLimit } from "@/lib/rate-limit";
+import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { requireAuth } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
 
 export const maxDuration = 120;
 
@@ -69,6 +70,15 @@ export async function POST(req: NextRequest) {
       }))
     );
 
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "brand.ingest",
+    targetType: "file",
+    targetId: ingested.id,
+    meta: { filename: file.name, kind, chunks: chunks.length },
+    ip: clientIp(req),
+  });
   return Response.json({ fileId: ingested.id, chunks: chunks.length, kind });
 }
 

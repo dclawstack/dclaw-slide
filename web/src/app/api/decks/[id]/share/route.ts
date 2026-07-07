@@ -4,6 +4,8 @@ import { nanoid } from "nanoid";
 import { hashPassword } from "@/lib/share";
 import { db, schema } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
+import { clientIp } from "@/lib/rate-limit";
 
 export async function POST(
   req: NextRequest,
@@ -21,7 +23,21 @@ export async function POST(
   });
   if (!deck) return Response.json({ error: "deck not found" }, { status: 404 });
 
-  const { password } = await req.json().catch(() => ({ password: undefined }));
+  const { password, expiresInDays } = await req
+    .json()
+    .catch(() => ({ password: undefined, expiresInDays: undefined }));
+
+  let expiresAt: Date | null = null;
+  if (expiresInDays !== undefined && expiresInDays !== null) {
+    const days = Number(expiresInDays);
+    if (!Number.isInteger(days) || days < 1 || days > 365) {
+      return Response.json(
+        { error: "expiresInDays must be 1–365" },
+        { status: 400 }
+      );
+    }
+    expiresAt = new Date(Date.now() + days * 86_400_000);
+  }
 
   const [link] = await db()
     .insert(schema.shareLinks)
@@ -32,8 +48,22 @@ export async function POST(
         typeof password === "string" && password.length > 0
           ? hashPassword(password)
           : null,
+      expiresAt,
+      createdBy: auth.userId,
     })
     .returning({ token: schema.shareLinks.token });
 
+  await audit({
+    workspaceId: auth.workspaceId,
+    actorUserId: auth.userId,
+    action: "share.create",
+    targetType: "deck",
+    targetId: id,
+    meta: {
+      protected: typeof password === "string" && password.length > 0,
+      expiresAt: expiresAt?.toISOString() ?? null,
+    },
+    ip: clientIp(req),
+  });
   return Response.json({ url: `/s/${link.token}` });
 }

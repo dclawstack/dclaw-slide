@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { verifyPassword } from "@/lib/share";
 import { createSession } from "@/lib/auth/session";
+import { audit } from "@/lib/audit";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 
 const LoginSchema = z.object({
@@ -47,6 +48,13 @@ export async function POST(req: NextRequest) {
   await createSession(user.id, membership.workspaceId, {
     ip: clientIp(req),
     userAgent: req.headers.get("user-agent"),
+  });
+
+  await audit({
+    workspaceId: membership.workspaceId,
+    actorUserId: user.id,
+    action: "auth.login",
+    ip: clientIp(req),
   });
 
   return Response.json({ ok: true, workspaceId: membership.workspaceId });

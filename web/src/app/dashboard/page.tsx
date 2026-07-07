@@ -34,6 +34,14 @@ export default async function Dashboard() {
         <header className="flex items-center justify-between">
           <h1 className="text-2xl font-bold">Your decks</h1>
           <span className="flex items-center gap-4">
+            {auth && (
+              <Link
+                href="/settings"
+                className="text-sm text-zinc-400 hover:text-zinc-200"
+              >
+                Settings
+              </Link>
+            )}
             {auth && <LogoutButton email={auth.email} />}
             <Link
               href="/new"
