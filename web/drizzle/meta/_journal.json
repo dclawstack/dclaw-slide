@@ -15,6 +15,13 @@
       "when": 1781505510476,
       "tag": "0001_bouncy_fantastic_four",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783417053513,
+      "tag": "0002_loose_victor_mancha",
+      "breakpoints": true
     }
   ]
 }

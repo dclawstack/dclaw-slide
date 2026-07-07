@@ -25,7 +25,18 @@ export default function BrandPage() {
   }
 
   useEffect(() => {
-    refresh();
+    let alive = true;
+    fetch("/api/ingest")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!alive) return;
+        setFiles(data.files ?? []);
+        setDbReady(data.db !== false);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
   }, []);
 
   async function upload(file: File) {

@@ -1,19 +1,22 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { hashPassword } from "@/lib/share";
-import { db, hasDb, schema } from "@/lib/db";
+import { db, schema } from "@/lib/db";
+import { requireAuth } from "@/lib/auth/session";
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!hasDb()) {
-    return Response.json({ error: "database not connected" }, { status: 503 });
-  }
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
   const { id } = await params;
   const deck = await db().query.decks.findFirst({
-    where: eq(schema.decks.id, id),
+    where: and(
+      eq(schema.decks.id, id),
+      eq(schema.decks.workspaceId, auth.workspaceId)
+    ),
     columns: { id: true },
   });
   if (!deck) return Response.json({ error: "deck not found" }, { status: 404 });

@@ -16,18 +16,21 @@ export function DemoDataControls() {
   const [count, setCount] = useState(0);
   const [msg, setMsg] = useState<string | null>(null);
 
-  async function refresh() {
-    try {
-      const res = await fetch("/api/demo");
-      const d = await res.json();
-      setSeeded(Boolean(d.seeded));
-      setCount(d.decks ?? 0);
-    } catch {
-      setSeeded(null);
-    }
-  }
   useEffect(() => {
-    refresh();
+    let alive = true;
+    fetch("/api/demo")
+      .then((res) => res.json())
+      .then((d) => {
+        if (!alive) return;
+        setSeeded(Boolean(d.seeded));
+        setCount(d.decks ?? 0);
+      })
+      .catch(() => {
+        if (alive) setSeeded(null);
+      });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   async function run(action: "seed" | "clear") {
@@ -40,6 +43,14 @@ export function DemoDataControls() {
         body: JSON.stringify({ action }),
       });
       const d = await res.json();
+      if (!res.ok) {
+        setMsg(
+          res.status === 401
+            ? "Sign in to manage demo data."
+            : (d.error ?? "Something went wrong.")
+        );
+        return;
+      }
       setSeeded(Boolean(d.seeded));
       setCount(d.decks ?? 0);
       setMsg(

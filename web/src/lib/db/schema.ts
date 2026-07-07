@@ -8,6 +8,7 @@ import {
   numeric,
   vector,
   index,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 
 // ---------- App tables ----------
@@ -17,6 +18,57 @@ export const workspaces = pgTable("workspaces", {
   name: text("name").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ---------- Identity & access ----------
+
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  passwordHash: text("password_hash").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const ROLES = ["viewer", "editor", "admin", "owner"] as const;
+export type Role = (typeof ROLES)[number];
+
+export const memberships = pgTable(
+  "memberships",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    role: text("role", { enum: ROLES }).notNull().default("editor"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("memberships_user_workspace_idx").on(t.userId, t.workspaceId)]
+);
+
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // sha256 of the cookie token — raw tokens are never stored.
+    tokenHash: text("token_hash").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // Active workspace for this session.
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    expiresAt: timestamp("expires_at").notNull(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("sessions_user_idx").on(t.userId)]
+);
 
 export const decks = pgTable("decks", {
   id: uuid("id").primaryKey().defaultRandom(),

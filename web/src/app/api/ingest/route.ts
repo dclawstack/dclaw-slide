@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { db, hasDb, schema } from "@/lib/db";
 import { extractPptxSlides, chunkText } from "@/lib/ingest/pptx";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { requireAuth } from "@/lib/auth/session";
 
 export const maxDuration = 120;
 
@@ -10,12 +11,8 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
 export async function POST(req: NextRequest) {
   const limited = checkRateLimit(req, "ingest", { limit: 10, windowMs: 60_000 });
   if (limited) return limited;
-  if (!hasDb()) {
-    return Response.json(
-      { error: "database not connected yet (NEON_API_KEY pending)" },
-      { status: 503 }
-    );
-  }
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
 
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
@@ -50,16 +47,10 @@ export async function POST(req: NextRequest) {
     return Response.json({ error: "no text found in file" }, { status: 422 });
   }
 
-  const workspace =
-    (await db().query.workspaces.findFirst()) ??
-    (
-      await db().insert(schema.workspaces).values({ name: "default" }).returning()
-    )[0];
-
   const [ingested] = await db()
     .insert(schema.ingestedFiles)
     .values({
-      workspaceId: workspace.id,
+      workspaceId: auth.workspaceId,
       filename: file.name,
       kind,
       slideCount: kind === "pptx" ? chunks.length : null,
@@ -72,7 +63,7 @@ export async function POST(req: NextRequest) {
     .insert(schema.brandChunks)
     .values(
       chunks.map((content) => ({
-        workspaceId: workspace.id,
+        workspaceId: auth.workspaceId,
         fileId: ingested.id,
         content,
       }))
@@ -83,7 +74,10 @@ export async function POST(req: NextRequest) {
 
 export async function GET() {
   if (!hasDb()) return Response.json({ files: [], db: false });
+  const auth = await requireAuth();
+  if (auth instanceof Response) return auth;
   const files = await db().query.ingestedFiles.findMany({
+    where: (f, { eq }) => eq(f.workspaceId, auth.workspaceId),
     orderBy: (f, { desc }) => [desc(f.createdAt)],
     limit: 50,
   });

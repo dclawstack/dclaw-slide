@@ -22,6 +22,7 @@ export function keywordsFor(prompt: string, max = 12): string[] {
  */
 export async function brandContextFor(
   prompt: string,
+  workspaceId: string,
   maxChunks = 10
 ): Promise<string> {
   if (!hasDb()) return "";
@@ -37,6 +38,7 @@ export async function brandContextFor(
     const rows = await db().execute(
       sql`SELECT content, (${score}) AS score
           FROM brand_chunks
+          WHERE workspace_id = ${workspaceId}
           ORDER BY score DESC, id DESC
           LIMIT ${maxChunks}`
     );

@@ -6,6 +6,7 @@ import { hasOpenRouter } from "@/lib/ai/openrouter";
 import { DEMO_DECK } from "@/lib/demo-deck";
 import { brandContextFor } from "@/lib/rag";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { requireAuth } from "@/lib/auth/session";
 import type { DeckJson } from "@/lib/deck/types";
 
 export const maxDuration = 300;
@@ -14,20 +15,6 @@ export const maxDuration = 300;
 const GEN_LIMIT = { limit: 5, windowMs: 60_000 };
 
 type StreamEvent = GenEvent | { type: "created"; deckId: string | null };
-
-async function getDefaultWorkspaceId(): Promise<string> {
-  // Pin real decks to the "default" workspace so they're never swept up by
-  // demo seed/clear (which uses the "__demo__" workspace).
-  const existing = await db().query.workspaces.findFirst({
-    where: eq(schema.workspaces.name, "default"),
-  });
-  if (existing) return existing.id;
-  const [ws] = await db()
-    .insert(schema.workspaces)
-    .values({ name: "default" })
-    .returning();
-  return ws.id;
-}
 
 /** Demo-mode generator: streams the canned deck so the UX is testable keyless. */
 async function* demoGenerate(): AsyncGenerator<GenEvent> {
@@ -54,14 +41,22 @@ export async function POST(req: NextRequest) {
   const limited = checkRateLimit(req, "deck-gen", GEN_LIMIT);
   if (limited) return limited;
 
+  // Keyless demo mode (no DB) stays open; with a DB every generation is
+  // authenticated and lands in the caller's workspace.
+  let workspaceId: string | null = null;
+  if (hasDb()) {
+    const auth = await requireAuth("editor");
+    if (auth instanceof Response) return auth;
+    workspaceId = auth.workspaceId;
+  }
+
   const { prompt } = await req.json().catch(() => ({ prompt: "" }));
   if (typeof prompt !== "string" || prompt.trim().length < 3) {
     return Response.json({ error: "prompt is required" }, { status: 400 });
   }
 
   let deckId: string | null = null;
-  if (hasDb()) {
-    const workspaceId = await getDefaultWorkspaceId();
+  if (workspaceId) {
     const [row] = await db()
       .insert(schema.decks)
       .values({ workspaceId, sourcePrompt: prompt.trim(), title: "Generating…" })
@@ -77,7 +72,9 @@ export async function POST(req: NextRequest) {
 
       send({ type: "created", deckId });
 
-      const brandContext = await brandContextFor(prompt).catch(() => "");
+      const brandContext = workspaceId
+        ? await brandContextFor(prompt, workspaceId).catch(() => "")
+        : "";
       const gen = hasOpenRouter()
         ? generateDeck(prompt.trim(), brandContext)
         : demoGenerate();
@@ -136,6 +133,8 @@ async function persistDeck(
 
 export async function GET() {
   if (!hasDb()) return Response.json({ decks: [], db: false });
+  const auth = await requireAuth();
+  if (auth instanceof Response) return auth;
   const rows = await db()
     .select({
       id: schema.decks.id,
@@ -144,6 +143,7 @@ export async function GET() {
       createdAt: schema.decks.createdAt,
     })
     .from(schema.decks)
+    .where(eq(schema.decks.workspaceId, auth.workspaceId))
     .orderBy(desc(schema.decks.createdAt))
     .limit(50);
   return Response.json({ decks: rows, db: true });

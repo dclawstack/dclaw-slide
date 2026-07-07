@@ -1,16 +1,21 @@
 import { NextRequest } from "next/server";
-import { eq } from "drizzle-orm";
-import { db, hasDb, schema } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { db, schema } from "@/lib/db";
 import { DeckJsonSchema } from "@/lib/deck/types";
+import { requireAuth } from "@/lib/auth/session";
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!hasDb()) return Response.json({ error: "no database" }, { status: 503 });
+  const auth = await requireAuth();
+  if (auth instanceof Response) return auth;
   const { id } = await params;
   const deck = await db().query.decks.findFirst({
-    where: eq(schema.decks.id, id),
+    where: and(
+      eq(schema.decks.id, id),
+      eq(schema.decks.workspaceId, auth.workspaceId)
+    ),
   });
   if (!deck) return Response.json({ error: "not found" }, { status: 404 });
   return Response.json(deck);
@@ -21,7 +26,8 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  if (!hasDb()) return Response.json({ error: "no database" }, { status: 503 });
+  const auth = await requireAuth("editor");
+  if (auth instanceof Response) return auth;
   const { id } = await params;
   const body = await req.json().catch(() => null);
   if (!body) return Response.json({ error: "bad body" }, { status: 400 });
@@ -45,7 +51,9 @@ export async function PATCH(
   const [row] = await db()
     .update(schema.decks)
     .set(update)
-    .where(eq(schema.decks.id, id))
+    .where(
+      and(eq(schema.decks.id, id), eq(schema.decks.workspaceId, auth.workspaceId))
+    )
     .returning({ id: schema.decks.id });
   if (!row) return Response.json({ error: "not found" }, { status: 404 });
 
