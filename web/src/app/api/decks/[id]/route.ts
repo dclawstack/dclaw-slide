@@ -5,6 +5,7 @@ import { DeckJsonSchema } from "@/lib/deck/types";
 import { requireAuth } from "@/lib/auth/session";
 import { audit } from "@/lib/audit";
 import { clientIp } from "@/lib/rate-limit";
+import { logger, errField } from "@/lib/logger";
 
 export async function GET(
   _req: NextRequest,
@@ -63,7 +64,7 @@ export async function PATCH(
     await db()
       .insert(schema.deckEvents)
       .values({ deckId: id, type: "edit" })
-      .catch(() => {});
+      .catch((err) => logger.warn("edit event insert failed", errField(err)));
   }
   await audit({
     workspaceId: auth.workspaceId,

@@ -2,6 +2,7 @@ import { and, count, eq, gte, sql } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { limitsFor, monthStart, type PlanLimits } from "@/lib/plans";
 import type { GenerationMeta } from "@/lib/ai/generate";
+import { logger, errField } from "@/lib/logger";
 
 export interface MonthlyUsage {
   generations: number;
@@ -83,6 +84,6 @@ export async function recordGeneration(
       meta: { models: meta.models, durationMs: meta.durationMs },
     });
   } catch (err) {
-    console.error("[usage] record failed:", err);
+    logger.error("usage record failed", errField(err));
   }
 }

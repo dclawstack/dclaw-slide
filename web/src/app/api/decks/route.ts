@@ -9,6 +9,7 @@ import { checkRateLimit } from "@/lib/rate-limit";
 import { requireAuth } from "@/lib/auth/session";
 import { checkGenerationAllowance, recordGeneration } from "@/lib/usage";
 import type { DeckJson } from "@/lib/deck/types";
+import { logger, errField } from "@/lib/logger";
 
 export const maxDuration = 300;
 
@@ -133,7 +134,7 @@ async function persistDeck(
       })
       .where(eq(schema.decks.id, deckId));
   } catch (err) {
-    console.error("persistDeck failed:", err);
+    logger.error("persistDeck failed", { deckId, ...errField(err) });
   }
 }
 

@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { verifyPassword } from "@/lib/share";
 import { checkRateLimit } from "@/lib/rate-limit";
+import { logger, errField } from "@/lib/logger";
 
 async function loadLink(token: string) {
   const link = await db().query.shareLinks.findFirst({
@@ -44,7 +45,7 @@ export async function GET(
   await db()
     .insert(schema.deckEvents)
     .values({ deckId: link.deckId, type: "share_view" })
-    .catch(() => {});
+    .catch((err) => logger.warn("share_view event insert failed", errField(err)));
   return Response.json(payload);
 }
 
@@ -81,6 +82,6 @@ export async function POST(
   await db()
     .insert(schema.deckEvents)
     .values({ deckId: link.deckId, type: "share_view" })
-    .catch(() => {});
+    .catch((err) => logger.warn("share_view event insert failed", errField(err)));
   return Response.json(payload);
 }

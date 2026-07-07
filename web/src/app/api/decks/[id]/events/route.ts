@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { db, hasDb, schema } from "@/lib/db";
 import { requireAuth } from "@/lib/auth/session";
+import { logger, errField } from "@/lib/logger";
 
 // share_view is recorded server-side by the share route, not via this API.
 const VALID = new Set(["view", "present", "edit"]);
@@ -32,6 +33,6 @@ export async function POST(
   await db()
     .insert(schema.deckEvents)
     .values({ deckId: id, type, sessionId: sessionId ?? null })
-    .catch(() => {});
+    .catch((err) => logger.warn("deck event insert failed", errField(err)));
   return Response.json({ ok: true });
 }

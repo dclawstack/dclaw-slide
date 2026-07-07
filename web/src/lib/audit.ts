@@ -1,4 +1,5 @@
 import { db, hasDb, schema } from "@/lib/db";
+import { logger, errField } from "@/lib/logger";
 
 export interface AuditEntry {
   workspaceId: string;
@@ -27,6 +28,6 @@ export async function audit(entry: AuditEntry): Promise<void> {
       ip: entry.ip ?? null,
     });
   } catch (err) {
-    console.error("[audit] write failed:", entry.action, err);
+    logger.error("audit write failed", { action: entry.action, ...errField(err) });
   }
 }
